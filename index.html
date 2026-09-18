@@ -1,0 +1,3132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>StudyMate AI — Study Smarter. Understand Faster.</title>
+<meta name="description" content="StudyMate AI - Your Personal AI Study Partner." />
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          brand: { 50:'#eef4ff',100:'#dbe7ff',200:'#bdd3ff',300:'#90b6ff',400:'#5c8dff',500:'#3b6dfb',600:'#254eef',700:'#1e3ddb',800:'#1e34b1',900:'#1e318b' },
+          accent:{ 50:'#f5f0ff',100:'#ece3ff',200:'#dbcaff',300:'#c0a1ff',400:'#a273ff',500:'#8847ff',600:'#7a2df5',700:'#6a1ee0',800:'#5819b8',900:'#4a1896' }
+        },
+        fontFamily: { sans: ['Inter','system-ui','sans-serif'] },
+        boxShadow: {
+          soft: '0 4px 24px -4px rgba(15,23,42,0.08)',
+          card: '0 1px 3px rgba(15,23,42,0.06), 0 8px 24px -8px rgba(15,23,42,0.1)'
+        },
+        keyframes: {
+          'fade-in': { '0%':{opacity:'0',transform:'translateY(6px)'},'100%':{opacity:'1',transform:'translateY(0)'} },
+          'slide-in': { '0%':{transform:'translateX(100%)'},'100%':{transform:'translateX(0)'} }
+        },
+        animation: { 'fade-in':'fade-in 0.3s ease-out', 'slide-in':'slide-in 0.25s ease-out' }
+      }
+    }
+  }
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+
+<style>
+  html { -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale; }
+  body { background: #f8fafc; font-family: 'Inter', system-ui, sans-serif; color: #1e293b; margin: 0; }
+  *:focus-visible { outline: none; box-shadow: 0 0 0 2px #3b6dfb, 0 0 0 4px #ffffff; border-radius: 4px; }
+  .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+  .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+  .prose-answer h3 { font-weight: 600; color: #0f172a; margin-top: 1rem; margin-bottom: 0.5rem; }
+  .prose-answer strong { color: #0f172a; }
+  .prose-answer code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 0.85em; }
+  .prose-answer pre { background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 8px; overflow-x: auto; font-size: 0.8rem; }
+  .prose-answer pre code { background: transparent; padding: 0; color: inherit; }
+  .prose-answer ul { list-style: disc; padding-left: 1.25rem; }
+  .prose-answer li { margin: 0.25rem 0; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel" data-type="module">
+const { useState, useEffect, useMemo, useRef, useCallback } = React;
+
+/* =========================== ICON WRAPPER =========================== */
+function Icon({ name, size = 20, className = '', strokeWidth = 2 }) {
+  const ref = useRef(null);
+  useEffect(() => {
+    if (ref.current && window.lucide) {
+      window.lucide.createIcons({ 
+        icons: window.lucide.icons,
+        nameAttr: 'data-lucide',
+        attrs: { 'stroke-width': strokeWidth }
+      });
+    }
+  });
+  return <i ref={ref} data-lucide={name} style={{ width: size, height: size, display: 'inline-block' }} className={className}></i>;
+}
+
+/* =========================== STORAGE UTILS =========================== */
+const STORAGE_KEYS = {
+  NOTES: 'studymate:notes',
+  QUIZZES: 'studymate:quizzes',
+  FLASHCARDS: 'studymate:flashcards',
+  TASKS: 'studymate:tasks',
+  EXAMS: 'studymate:exams',
+  RESOURCES: 'studymate:resources',
+  SESSIONS: 'studymate:sessions',
+  PROFILE: 'studymate:profile',
+  NOTIFICATIONS: 'studymate:notifications',
+  RECENT_SEARCHES: 'studymate:recentSearches',
+  POMODORO: 'studymate:pomodoro',
+};
+
+function loadFromStorage(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw);
+  } catch (e) { return fallback; }
+}
+function saveToStorage(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) {}
+}
+function useLocalStorage(key, initial) {
+  const [value, setValue] = useState(() => loadFromStorage(key, initial));
+  useEffect(() => { saveToStorage(key, value); }, [key, value]);
+  return [value, setValue];
+}
+
+/* =========================== HELPERS =========================== */
+const uid = (p='id') => `${p}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2,7)}`;
+const formatDate = (iso) => new Date(iso).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
+const daysBetween = (target) => {
+  const now = new Date(); now.setHours(0,0,0,0);
+  const t = new Date(target); t.setHours(0,0,0,0);
+  return Math.max(0, Math.round((t - now)/86400000));
+};
+const examCountdown = (target) => {
+  const diff = Math.max(0, new Date(target).getTime() - Date.now());
+  return {
+    days: Math.floor(diff/86400000),
+    hours: Math.floor((diff%86400000)/3600000),
+    minutes: Math.floor((diff%3600000)/60000),
+    seconds: Math.floor((diff%60000)/1000),
+  };
+};
+const greeting = () => {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good Morning';
+  if (h < 18) return 'Good Afternoon';
+  return 'Good Evening';
+};
+const todayDate = () => new Date().toISOString().slice(0,10);
+const pad = (n) => n.toString().padStart(2,'0');
+
+/* =========================== DEMO DATA =========================== */
+const SUBJECTS = [
+  { id:'python', name:'Python', progress:82, lastStudied:'2 hours ago', color:'from-blue-500 to-cyan-500', icon:'code-2' },
+  { id:'ml', name:'Machine Learning', progress:68, lastStudied:'Yesterday', color:'from-purple-500 to-pink-500', icon:'brain' },
+  { id:'ai', name:'Artificial Intelligence', progress:55, lastStudied:'3 days ago', color:'from-indigo-500 to-purple-500', icon:'bot' },
+  { id:'sql', name:'SQL', progress:75, lastStudied:'Today', color:'from-emerald-500 to-teal-500', icon:'database' },
+  { id:'ds', name:'Data Structures', progress:63, lastStudied:'2 days ago', color:'from-orange-500 to-amber-500', icon:'git-branch' },
+  { id:'web', name:'Web Development', progress:71, lastStudied:'Yesterday', color:'from-rose-500 to-pink-500', icon:'globe' },
+  { id:'math', name:'Mathematics', progress:54, lastStudied:'4 days ago', color:'from-violet-500 to-purple-500', icon:'sigma' },
+  { id:'cloud', name:'Cloud Computing', progress:60, lastStudied:'Today', color:'from-sky-500 to-blue-500', icon:'cloud' },
+];
+
+const TOPICS = ['Variables & Types','Functions','OOP Basics','Recursion','Files & I/O','Linear Regression','Neural Networks','Decision Trees','Supervised Learning','Unsupervised Learning','Search Algorithms','Knowledge Representation','SQL Joins','Subqueries','Indexes','Arrays','Linked Lists','Trees','Graphs','Sorting','HTML & CSS','React Basics','APIs','Probability','Linear Algebra','Calculus','IaaS/PaaS/SaaS','Virtualization','Docker Basics','Cloud Security'];
+
+const DEMO_NOTES = [
+  { id:'n1', title:'Python List Comprehensions', subject:'Python', content:'List comprehensions provide a concise way to create lists. Syntax: [expression for item in iterable if condition]. Example: squares = [x**2 for x in range(10) if x % 2 == 0]. They are faster than traditional loops and more Pythonic.', tags:['python','basics'], favorite:true, createdAt:new Date(Date.now()-86400000*2).toISOString(), updatedAt:new Date(Date.now()-86400000*2).toISOString() },
+  { id:'n2', title:'Gradient Descent Explained', subject:'Machine Learning', content:'Gradient descent is an optimization algorithm to minimize a cost function by iteratively moving in the direction of steepest descent (negative gradient). Learning rate controls step size. Variants: Batch GD, Stochastic GD, Mini-batch GD.', tags:['ml','optimization'], favorite:true, createdAt:new Date(Date.now()-86400000*5).toISOString(), updatedAt:new Date(Date.now()-86400000*5).toISOString() },
+  { id:'n3', title:'SQL JOIN Types', subject:'SQL', content:'INNER JOIN returns matching rows. LEFT JOIN returns all rows from left table plus matching. RIGHT JOIN mirrors LEFT. FULL OUTER JOIN returns all rows from both. CROSS JOIN returns Cartesian product.', tags:['sql','joins'], favorite:false, createdAt:new Date(Date.now()-86400000*1).toISOString(), updatedAt:new Date(Date.now()-86400000*1).toISOString() },
+  { id:'n4', title:'Neural Network Architecture', subject:'Machine Learning', content:'Neural networks consist of input, hidden, and output layers. Each neuron applies weights, bias, and activation. Common activations: ReLU, sigmoid, tanh, softmax. Training uses forward + backpropagation with gradient descent.', tags:['ml','deep-learning'], favorite:true, createdAt:new Date(Date.now()-86400000*3).toISOString(), updatedAt:new Date(Date.now()-86400000*3).toISOString() },
+  { id:'n5', title:'Big-O Complexity Cheatsheet', subject:'Data Structures', content:'O(1) constant, O(log n) logarithmic (binary search), O(n) linear, O(n log n) (merge sort), O(n²) quadratic (bubble sort), O(2ⁿ) exponential. Always analyze worst-case for interviews.', tags:['ds','complexity'], favorite:false, createdAt:new Date(Date.now()-86400000*6).toISOString(), updatedAt:new Date(Date.now()-86400000*6).toISOString() },
+  { id:'n6', title:'Probability Basics', subject:'Mathematics', content:'P(A) between 0 and 1. P(A∪B)=P(A)+P(B)-P(A∩B). Conditional probability P(A|B)=P(A∩B)/P(B). Bayes theorem: P(A|B)=P(B|A)P(A)/P(B).', tags:['math','probability'], favorite:false, createdAt:new Date(Date.now()-86400000*4).toISOString(), updatedAt:new Date(Date.now()-86400000*4).toISOString() },
+  { id:'n7', title:'Cloud Service Models', subject:'Cloud Computing', content:'IaaS (Infrastructure) - VMs, storage. PaaS (Platform) - app runtimes. SaaS (Software) - end-user apps. Deployment: public, private, hybrid, community.', tags:['cloud','fundamentals'], favorite:false, createdAt:new Date(Date.now()-86400000).toISOString(), updatedAt:new Date(Date.now()-86400000).toISOString() },
+  { id:'n8', title:'React Hooks Overview', subject:'Web Development', content:'useState for state, useEffect for side effects, useMemo for memoization, useCallback for stable functions, useRef for refs, useContext for context. Hooks must be called at top level.', tags:['react','web'], favorite:true, createdAt:new Date(Date.now()-86400000*2).toISOString(), updatedAt:new Date(Date.now()-86400000*2).toISOString() },
+  { id:'n9', title:'Supervised vs Unsupervised', subject:'Machine Learning', content:'Supervised uses labeled data (classification/regression). Unsupervised finds patterns in unlabeled data (clustering, dimensionality reduction). Semi-supervised combines both.', tags:['ml','basics'], favorite:false, createdAt:new Date(Date.now()-86400000*7).toISOString(), updatedAt:new Date(Date.now()-86400000*7).toISOString() },
+  { id:'n10', title:'Trees & Traversals', subject:'Data Structures', content:'Binary trees have at most 2 children. Traversals: Inorder (LNR), Preorder (NLR), Postorder (LRN), Level-order (BFS). BST: left < root < right.', tags:['ds','trees'], favorite:false, createdAt:new Date(Date.now()-86400000*3).toISOString(), updatedAt:new Date(Date.now()-86400000*3).toISOString() },
+  { id:'n11', title:'Recursion Fundamentals', subject:'Python', content:'Recursion = function calls itself. Needs base case + recursive case. Uses call stack. Examples: factorial, Fibonacci, tree traversal. Watch for stack overflow.', tags:['python','recursion'], favorite:true, createdAt:new Date(Date.now()-86400000*5).toISOString(), updatedAt:new Date(Date.now()-86400000*5).toISOString() },
+  { id:'n12', title:'Confusion Matrix Metrics', subject:'Machine Learning', content:'Accuracy=(TP+TN)/total. Precision=TP/(TP+FP). Recall=TP/(TP+FN). F1=2*P*R/(P+R). Use F1 for imbalanced data.', tags:['ml','metrics'], favorite:false, createdAt:new Date(Date.now()-86400000*8).toISOString(), updatedAt:new Date(Date.now()-86400000*8).toISOString() },
+  { id:'n13', title:'REST API Principles', subject:'Web Development', content:'REST: Representational State Transfer. Stateless, client-server, cacheable, uniform interface. HTTP verbs: GET, POST, PUT, PATCH, DELETE. Uses resources identified by URLs.', tags:['web','api'], favorite:false, createdAt:new Date(Date.now()-86400000*2).toISOString(), updatedAt:new Date(Date.now()-86400000*2).toISOString() },
+  { id:'n14', title:'Normalization in Databases', subject:'SQL', content:'1NF: atomic values. 2NF: no partial dependency. 3NF: no transitive dependency. BCNF: every determinant is a candidate key. Reduces redundancy, improves integrity.', tags:['sql','normalization'], favorite:false, createdAt:new Date(Date.now()-86400000*6).toISOString(), updatedAt:new Date(Date.now()-86400000*6).toISOString() },
+  { id:'n15', title:'Activation Functions', subject:'Machine Learning', content:'Sigmoid: (0,1), vanishing gradient. Tanh: (-1,1). ReLU: max(0,x), fast, sparse. Leaky ReLU: fixes dying ReLU. Softmax: multi-class output probabilities.', tags:['ml','deep-learning'], favorite:false, createdAt:new Date(Date.now()-86400000*4).toISOString(), updatedAt:new Date(Date.now()-86400000*4).toISOString() },
+];
+
+const DEMO_EXAMS = [
+  { id:'e1', name:'Machine Learning Final', subject:'Machine Learning', date:new Date(Date.now()+12*86400000).toISOString(), preparation:68, priority:'High' },
+  { id:'e2', name:'SQL Assessment', subject:'SQL', date:new Date(Date.now()+5*86400000).toISOString(), preparation:75, priority:'High' },
+  { id:'e3', name:'Data Structures Mid-term', subject:'Data Structures', date:new Date(Date.now()+18*86400000).toISOString(), preparation:55, priority:'Medium' },
+  { id:'e4', name:'Cloud Computing Quiz', subject:'Cloud Computing', date:new Date(Date.now()+9*86400000).toISOString(), preparation:62, priority:'Medium' },
+  { id:'e5', name:'Mathematics Unit Test', subject:'Mathematics', date:new Date(Date.now()+25*86400000).toISOString(), preparation:48, priority:'Low' },
+];
+
+const DEMO_TASKS = [
+  { id:'t1', day:'Monday', startTime:'18:00', endTime:'19:00', subject:'Machine Learning', topic:'Neural Networks', priority:'High', completed:false },
+  { id:'t2', day:'Monday', startTime:'19:15', endTime:'20:00', subject:'SQL', topic:'Joins', priority:'High', completed:true },
+  { id:'t3', day:'Tuesday', startTime:'18:00', endTime:'19:00', subject:'Python', topic:'Recursion Practice', priority:'Medium', completed:false },
+  { id:'t4', day:'Tuesday', startTime:'19:15', endTime:'20:30', subject:'Data Structures', topic:'Trees & Traversals', priority:'High', completed:false },
+  { id:'t5', day:'Wednesday', startTime:'18:00', endTime:'19:00', subject:'Mathematics', topic:'Probability', priority:'High', completed:false },
+  { id:'t6', day:'Wednesday', startTime:'19:15', endTime:'20:00', subject:'Cloud Computing', topic:'Service Models', priority:'Medium', completed:false },
+  { id:'t7', day:'Thursday', startTime:'18:00', endTime:'19:30', subject:'Machine Learning', topic:'Model Evaluation', priority:'High', completed:false },
+  { id:'t8', day:'Thursday', startTime:'19:45', endTime:'20:30', subject:'Web Development', topic:'React Hooks', priority:'Medium', completed:false },
+  { id:'t9', day:'Friday', startTime:'18:00', endTime:'19:00', subject:'SQL', topic:'Subqueries', priority:'Medium', completed:false },
+  { id:'t10', day:'Friday', startTime:'19:15', endTime:'20:00', subject:'Python', topic:'OOP Practice', priority:'Low', completed:false },
+  { id:'t11', day:'Saturday', startTime:'10:00', endTime:'11:30', subject:'Machine Learning', topic:'Revision', priority:'High', completed:false },
+  { id:'t12', day:'Saturday', startTime:'12:00', endTime:'13:00', subject:'Data Structures', topic:'Graphs', priority:'Medium', completed:false },
+  { id:'t13', day:'Saturday', startTime:'15:00', endTime:'16:00', subject:'Mathematics', topic:'Linear Algebra', priority:'Low', completed:false },
+  { id:'t14', day:'Sunday', startTime:'10:00', endTime:'11:00', subject:'Cloud Computing', topic:'Docker Basics', priority:'Medium', completed:false },
+  { id:'t15', day:'Sunday', startTime:'11:30', endTime:'13:00', subject:'Web Development', topic:'Building a Project', priority:'Low', completed:false },
+  { id:'t16', day:'Monday', startTime:'18:00', endTime:'19:00', subject:'Python', topic:'Advanced Topics', priority:'Medium', completed:false },
+  { id:'t17', day:'Tuesday', startTime:'18:00', endTime:'19:00', subject:'Mathematics', topic:'Calculus', priority:'High', completed:false },
+  { id:'t18', day:'Wednesday', startTime:'18:00', endTime:'19:00', subject:'SQL', topic:'Indexes', priority:'Low', completed:false },
+  { id:'t19', day:'Thursday', startTime:'18:00', endTime:'19:30', subject:'Machine Learning', topic:'Deep Learning', priority:'High', completed:false },
+  { id:'t20', day:'Friday', startTime:'18:00', endTime:'19:30', subject:'Data Structures', topic:'Sorting Algorithms', priority:'Medium', completed:false },
+];
+
+const DEMO_RESOURCES = [
+  { id:'r1', title:'Python Official Documentation', subject:'Python', type:'Websites', description:'Complete Python language reference and tutorials.', link:'https://docs.python.org/3/', dateAdded:new Date(Date.now()-86400000*10).toISOString() },
+  { id:'r2', title:'Hands-On Machine Learning (Book)', subject:'Machine Learning', type:'Books', description:'By Aurélien Géron — practical ML with scikit-learn and TensorFlow.', link:'#', dateAdded:new Date(Date.now()-86400000*8).toISOString() },
+  { id:'r3', title:'SQL Joins Visualized', subject:'SQL', type:'Websites', description:'Visual guide to all SQL JOIN types.', link:'https://sql-joins.leopard.in.ua/', dateAdded:new Date(Date.now()-86400000*6).toISOString() },
+  { id:'r4', title:'Neural Networks (3Blue1Brown)', subject:'Machine Learning', type:'Videos', description:'Excellent visual series on neural networks and backprop.', link:'https://www.youtube.com/playlist?list=PLZHQObOWTQDNU6R1_67000Dx_ZCJB-3pi', dateAdded:new Date(Date.now()-86400000*4).toISOString() },
+  { id:'r5', title:'Big-O Cheat Sheet', subject:'Data Structures', type:'PDFs', description:'Quick reference for algorithm complexities.', link:'https://www.bigocheatsheet.com/', dateAdded:new Date(Date.now()-86400000*3).toISOString() },
+  { id:'r6', title:'Khan Academy — Probability', subject:'Mathematics', type:'Videos', description:'Free probability lessons with practice exercises.', link:'https://www.khanacademy.org/math/statistics-probability', dateAdded:new Date(Date.now()-86400000*7).toISOString() },
+  { id:'r7', title:'AWS Cloud Practitioner Essentials', subject:'Cloud Computing', type:'Videos', description:'Free AWS fundamentals course.', link:'https://aws.amazon.com/training/digital/aws-cloud-practitioner-essentials/', dateAdded:new Date(Date.now()-86400000*5).toISOString() },
+  { id:'r8', title:'React Hooks Deep Dive', subject:'Web Development', type:'Websites', description:'Official React hooks documentation with examples.', link:'https://react.dev/reference/react', dateAdded:new Date(Date.now()-86400000*2).toISOString() },
+  { id:'r9', title:'ML Practice Questions', subject:'Machine Learning', type:'Practice Questions', description:'Curated set of ML interview questions with solutions.', link:'#', dateAdded:new Date(Date.now()-86400000).toISOString() },
+  { id:'r10', title:'LeetCode Practice', subject:'Data Structures', type:'Practice Questions', description:'Coding problems across all difficulty levels.', link:'https://leetcode.com/', dateAdded:new Date(Date.now()-86400000*9).toISOString() },
+];
+
+const DEMO_FLASHCARDS = [
+  { id:'f1', front:'What is Machine Learning?', back:'Machine Learning is a method where systems learn patterns from data to make predictions or decisions without being explicitly programmed.', subject:'Machine Learning', topic:'Basics', status:'new' },
+  { id:'f2', front:'What is overfitting?', back:'When a model learns training data too well, including noise, and performs poorly on unseen data.', subject:'Machine Learning', topic:'Model Evaluation', status:'new' },
+  { id:'f3', front:'Define recursion.', back:'A function that calls itself with a smaller input until reaching a base case.', subject:'Python', topic:'Recursion', status:'new' },
+  { id:'f4', front:'What is a primary key?', back:'A column (or set of columns) that uniquely identifies each row in a table.', subject:'SQL', topic:'Fundamentals', status:'new' },
+  { id:'f5', front:'What is Big-O notation?', back:'A mathematical notation describing the upper bound of an algorithm\'s time or space complexity as input grows.', subject:'Data Structures', topic:'Complexity', status:'new' },
+  { id:'f6', front:'What is supervised learning?', back:'Training a model on labeled data — inputs paired with correct outputs — to predict outputs for new inputs.', subject:'Machine Learning', topic:'Basics', status:'new' },
+  { id:'f7', front:'Define a stack.', back:'A LIFO (Last In First Out) data structure with push and pop operations.', subject:'Data Structures', topic:'Linear', status:'new' },
+  { id:'f8', front:'What is SQL JOIN?', back:'An operation combining rows from two or more tables based on a related column.', subject:'SQL', topic:'Joins', status:'new' },
+  { id:'f9', front:'Explain gradient descent.', back:'An optimization algorithm that iteratively moves parameters in the direction of steepest descent of the loss function.', subject:'Machine Learning', topic:'Optimization', status:'new' },
+  { id:'f10', front:'What is React?', back:'A JavaScript library for building user interfaces using reusable components and a virtual DOM.', subject:'Web Development', topic:'React', status:'new' },
+  { id:'f11', front:'What is a Docker container?', back:'A lightweight, standalone package containing application code and its dependencies for consistent execution.', subject:'Cloud Computing', topic:'Docker', status:'new' },
+  { id:'f12', front:'Define normalization (DB).', back:'Organizing data to reduce redundancy — forms: 1NF, 2NF, 3NF, BCNF.', subject:'SQL', topic:'Normalization', status:'new' },
+  { id:'f13', front:'What is a neural network?', back:'A computing system inspired by the brain with layers of interconnected nodes learning patterns via weighted connections.', subject:'Machine Learning', topic:'Deep Learning', status:'new' },
+  { id:'f14', front:'What is an activation function?', back:'A non-linear function applied to a neuron\'s output (ReLU, sigmoid, tanh, softmax) enabling networks to learn complex patterns.', subject:'Machine Learning', topic:'Deep Learning', status:'new' },
+  { id:'f15', front:'Explain polymorphism.', back:'The ability of the same interface to represent different underlying types — overloading (compile-time) and overriding (runtime).', subject:'Python', topic:'OOP', status:'new' },
+  { id:'f16', front:'What is probability?', back:'A number between 0 and 1 measuring the likelihood of an event occurring.', subject:'Mathematics', topic:'Probability', status:'new' },
+  { id:'f17', front:'Define IaaS.', back:'Infrastructure as a Service — providing virtualized computing resources over the internet (e.g. AWS EC2).', subject:'Cloud Computing', topic:'Service Models', status:'new' },
+  { id:'f18', front:'What is a linked list?', back:'A linear data structure where each node contains data and a reference to the next node.', subject:'Data Structures', topic:'Linear', status:'new' },
+  { id:'f19', front:'What is precision?', back:'Precision = TP / (TP + FP) — measures how many predicted positives are actually positive.', subject:'Machine Learning', topic:'Metrics', status:'new' },
+  { id:'f20', front:'What is an API?', back:'Application Programming Interface — a set of rules allowing different software programs to communicate.', subject:'Web Development', topic:'API', status:'new' },
+];
+
+const QUESTION_BANK = [
+  { id:'q1', subject:'Python', topic:'Recursion', difficulty:'Easy', type:'mcq', question:'What is essential for a recursive function to terminate?', options:['A loop','A base case','A global variable','An exception'], correctAnswer:'A base case', explanation:'A base case stops recursion by providing a condition that does not call the function again.' },
+  { id:'q2', subject:'Machine Learning', topic:'Supervised Learning', difficulty:'Easy', type:'mcq', question:'Which task is a supervised learning problem?', options:['Clustering customers','Predicting house prices','Anomaly detection','Dimensionality reduction'], correctAnswer:'Predicting house prices', explanation:'Predicting house prices uses labeled data (features + price), which is supervised regression.' },
+  { id:'q3', subject:'SQL', topic:'Joins', difficulty:'Medium', type:'mcq', question:'Which JOIN returns all rows from the left table and matching rows from the right?', options:['INNER JOIN','LEFT JOIN','RIGHT JOIN','CROSS JOIN'], correctAnswer:'LEFT JOIN', explanation:'LEFT JOIN keeps all left-table rows; unmatched right rows become NULL.' },
+  { id:'q4', subject:'Data Structures', topic:'Complexity', difficulty:'Easy', type:'mcq', question:'What is the time complexity of binary search?', options:['O(n)','O(log n)','O(n log n)','O(n²)'], correctAnswer:'O(log n)', explanation:'Binary search halves the search space each step, giving O(log n).' },
+  { id:'q5', subject:'Machine Learning', topic:'Neural Networks', difficulty:'Hard', type:'mcq', question:'Which activation function can cause the "dying ReLU" problem?', options:['Sigmoid','Tanh','ReLU','Softmax'], correctAnswer:'ReLU', explanation:'ReLU neurons can get stuck outputting 0 — this is the dying ReLU problem. Leaky ReLU helps fix it.' },
+  { id:'q6', subject:'Python', topic:'OOP', difficulty:'Medium', type:'mcq', question:'What is polymorphism?', options:['Hiding data','Same interface, different implementations','Creating multiple objects','Copying objects'], correctAnswer:'Same interface, different implementations', explanation:'Polymorphism lets the same method name behave differently across types (overloading/overriding).' },
+  { id:'q7', subject:'SQL', topic:'Normalization', difficulty:'Medium', type:'mcq', question:'Which normal form eliminates partial dependency?', options:['1NF','2NF','3NF','BCNF'], correctAnswer:'2NF', explanation:'2NF removes partial dependency on a composite primary key.' },
+  { id:'q8', subject:'Cloud Computing', topic:'Service Models', difficulty:'Easy', type:'mcq', question:'Gmail is an example of which cloud model?', options:['IaaS','PaaS','SaaS','DaaS'], correctAnswer:'SaaS', explanation:'Gmail is Software as a Service — a ready-to-use application over the internet.' },
+  { id:'q9', subject:'Machine Learning', topic:'Metrics', difficulty:'Medium', type:'mcq', question:'Which metric is best for imbalanced classification?', options:['Accuracy','F1 Score','MSE','R²'], correctAnswer:'F1 Score', explanation:'F1 balances precision and recall, robust to class imbalance.' },
+  { id:'q10', subject:'Web Development', topic:'React', difficulty:'Easy', type:'mcq', question:'Which hook manages local state in a React function component?', options:['useEffect','useState','useRef','useMemo'], correctAnswer:'useState', explanation:'useState returns a state value and a setter function.' },
+  { id:'q11', subject:'Python', topic:'Recursion', difficulty:'Easy', type:'tf', question:'Every recursive function must have a base case.', options:['True','False'], correctAnswer:'True', explanation:'Without a base case, recursion never terminates (infinite recursion).' },
+  { id:'q12', subject:'Machine Learning', topic:'Supervised Learning', difficulty:'Easy', type:'tf', question:'Supervised learning uses unlabeled data.', options:['True','False'], correctAnswer:'False', explanation:'Supervised learning uses labeled data; unsupervised uses unlabeled data.' },
+  { id:'q13', subject:'SQL', topic:'Joins', difficulty:'Medium', type:'tf', question:'INNER JOIN returns unmatched rows.', options:['True','False'], correctAnswer:'False', explanation:'INNER JOIN returns only matching rows from both tables.' },
+  { id:'q14', subject:'Data Structures', topic:'Trees', difficulty:'Medium', type:'tf', question:'In a BST, the left child is smaller than the parent.', options:['True','False'], correctAnswer:'True', explanation:'BST property: left < parent < right.' },
+  { id:'q15', subject:'Cloud Computing', topic:'Service Models', difficulty:'Medium', type:'tf', question:'PaaS provides virtual machines directly.', options:['True','False'], correctAnswer:'False', explanation:'PaaS provides platforms; IaaS provides VMs.' },
+  { id:'q16', subject:'Python', topic:'Basics', difficulty:'Easy', type:'fill', question:'The keyword to define a function in Python is ______.', options:['def','func','function','lambda'], correctAnswer:'def', explanation:'Use "def" to define a function in Python.' },
+  { id:'q17', subject:'SQL', topic:'Fundamentals', difficulty:'Easy', type:'fill', question:'The SQL clause to filter rows is ______.', options:['WHERE','HAVING','FILTER','IF'], correctAnswer:'WHERE', explanation:'WHERE filters rows before grouping; HAVING filters after grouping.' },
+  { id:'q18', subject:'Machine Learning', topic:'Optimization', difficulty:'Medium', type:'fill', question:'The ______ rate controls the step size in gradient descent.', options:['learning','step','update','gradient'], correctAnswer:'learning', explanation:'Learning rate — too high diverges, too low is slow.' },
+  { id:'q19', subject:'Data Structures', topic:'Linear', difficulty:'Easy', type:'fill', question:'A ______ follows LIFO order.', options:['stack','queue','list','tree'], correctAnswer:'stack', explanation:'Stack = Last In First Out.' },
+  { id:'q20', subject:'Web Development', topic:'API', difficulty:'Medium', type:'fill', question:'REST APIs are ______ — meaning no session state is stored on the server.', options:['stateless','stateful','cached','secure'], correctAnswer:'stateless', explanation:'REST is stateless: each request carries all needed info.' },
+  { id:'q21', subject:'Mathematics', topic:'Probability', difficulty:'Medium', type:'mcq', question:'If P(A)=0.4, P(B)=0.3, P(A∩B)=0.1, what is P(A∪B)?', options:['0.6','0.7','0.5','0.8'], correctAnswer:'0.6', explanation:'P(A∪B)=P(A)+P(B)−P(A∩B)=0.4+0.3−0.1=0.6.' },
+  { id:'q22', subject:'Machine Learning', topic:'Neural Networks', difficulty:'Hard', type:'mcq', question:'Which algorithm trains neural networks by computing gradients?', options:['K-means','Backpropagation','PCA','Apriori'], correctAnswer:'Backpropagation', explanation:'Backpropagation propagates error gradients backward to update weights.' },
+  { id:'q23', subject:'SQL', topic:'Subqueries', difficulty:'Hard', type:'mcq', question:'A subquery in the FROM clause is called a ______.', options:['derived table','view','CTE','cursor'], correctAnswer:'derived table', explanation:'Subquery in FROM is a derived table (inline view).' },
+  { id:'q24', subject:'Data Structures', topic:'Sorting', difficulty:'Medium', type:'mcq', question:'Which sort has average O(n log n) and is stable?', options:['Quick Sort','Merge Sort','Heap Sort','Selection Sort'], correctAnswer:'Merge Sort', explanation:'Merge sort is stable with guaranteed O(n log n).' },
+  { id:'q25', subject:'Cloud Computing', topic:'Virtualization', difficulty:'Medium', type:'mcq', question:'Which technology isolates apps at the OS level?', options:['Hypervisor','Container','VM','Emulator'], correctAnswer:'Container', explanation:'Containers share the host OS kernel, unlike VMs.' },
+  { id:'q26', subject:'Python', topic:'Functions', difficulty:'Easy', type:'mcq', question:'Which keyword returns a value from a function?', options:['yield','return','break','exit'], correctAnswer:'return', explanation:'return exits the function and sends a value back.' },
+  { id:'q27', subject:'Web Development', topic:'HTML & CSS', difficulty:'Easy', type:'mcq', question:'Which CSS property controls text size?', options:['font-weight','font-size','text-align','line-height'], correctAnswer:'font-size', explanation:'font-size sets the size of the text.' },
+  { id:'q28', subject:'Mathematics', topic:'Linear Algebra', difficulty:'Medium', type:'mcq', question:'The dot product of two orthogonal vectors is ______.', options:['1','0','undefined','equal to their norms'], correctAnswer:'0', explanation:'Orthogonal vectors have a dot product of 0.' },
+  { id:'q29', subject:'Machine Learning', topic:'Unsupervised Learning', difficulty:'Medium', type:'mcq', question:'K-means is an example of ______.', options:['classification','regression','clustering','reinforcement learning'], correctAnswer:'clustering', explanation:'K-means groups data points into k clusters without labels.' },
+  { id:'q30', subject:'Data Structures', topic:'Graphs', difficulty:'Hard', type:'mcq', question:'Which algorithm finds shortest paths from a single source with non-negative weights?', options:['BFS','DFS','Dijkstra','Bellman-Ford'], correctAnswer:'Dijkstra', explanation:'Dijkstra works with non-negative weights; Bellman-Ford handles negatives.' },
+];
+
+/* =========================== AI SERVICE =========================== */
+const TOPIC_KNOWLEDGE = {
+  recursion: {
+    simple: 'Recursion is when a function calls itself to solve a smaller version of the same problem. You need a base case to stop, and each call gets closer to it.',
+    detailed: 'Recursion is a programming technique where a function invokes itself to break a problem into smaller sub-problems. A recursive function must have:\n\n1. **Base case** – the condition that stops recursion.\n2. **Recursive case** – the function calling itself with a reduced input.\n\nEach recursive call is pushed onto the call stack until the base case is reached, then results are returned back up the stack.',
+    example: 'Factorial in Python:\n\n```python\ndef factorial(n):\n    if n <= 1:      # base case\n        return 1\n    return n * factorial(n - 1)  # recursive case\n\nprint(factorial(5))  # 120\n```',
+    keyPoints: ['A function that calls itself','Must have a base case','Each call reduces problem size','Uses the call stack','Good for trees, divide & conquer'],
+  },
+  'supervised learning': {
+    simple: 'Supervised learning is training a model on labeled data — inputs paired with correct outputs — so it can predict outputs for new inputs.',
+    detailed: 'Supervised learning is a machine learning paradigm where a model learns a mapping f: X → Y from labeled training data (xᵢ, yᵢ).\n\nTwo main task types:\n- **Classification** – predict a discrete class (e.g. spam / not spam).\n- **Regression** – predict a continuous value (e.g. house prices).\n\nCommon algorithms: Linear Regression, Logistic Regression, Decision Trees, SVM, Neural Networks.',
+    example: 'Predicting whether an email is spam:\n- Features: word frequencies, sender domain\n- Label: spam / not spam\n- Model learns patterns from thousands of labeled examples.',
+    keyPoints: ['Uses labeled data','Classification & regression','Goal: generalize to unseen data','Evaluated with accuracy, F1, MSE','Spam detection, price prediction, image classification'],
+  },
+  normalization: {
+    simple: 'Normalization is scaling data so values fit within a standard range, usually 0 to 1. It helps models learn faster and fairly.',
+    detailed: 'Normalization transforms numerical features to a common scale. Common methods:\n\n- **Min-Max Scaling**: x\' = (x − min) / (max − min) → [0, 1]\n- **Z-score Standardization**: x\' = (x − μ) / σ → mean 0, std 1\n\nThis prevents features with larger magnitudes from dominating distance-based algorithms (KNN, SVM, neural networks).',
+    example: 'Ages (18–90) and salaries (20k–200k) used together: without scaling, salary dominates distance. Min-Max brings both to [0, 1].',
+    keyPoints: ['Scales features to a common range','Min-Max → [0,1]; Z-score → mean 0, std 1','Improves convergence speed','Essential for distance-based algorithms','Fit scaler on training data only'],
+  },
+  polymorphism: {
+    simple: 'Polymorphism lets the same function behave differently for different objects. "Poly" = many, "morph" = forms.',
+    detailed: 'Polymorphism is an OOP principle where a single interface represents different underlying types. Two main forms:\n\n- **Compile-time (overloading)** – same method name, different parameters.\n- **Runtime (overriding)** – subclass provides its own implementation of a parent method.',
+    example: '```python\nclass Animal:\n    def speak(self):\n        return "Some sound"\n\nclass Dog(Animal):\n    def speak(self):\n        return "Woof"\n\nclass Cat(Animal):\n    def speak(self):\n        return "Meow"\n\nfor a in [Dog(), Cat()]:\n    print(a.speak())  # Woof, Meow\n```',
+    keyPoints: ['Same interface, different implementations','Overloading (compile-time) & Overriding (runtime)','Enables flexible, extensible code','Core OOP pillar'],
+  },
+  'cloud computing': {
+    simple: 'Cloud computing means using computing resources (servers, storage, databases) over the internet instead of owning physical hardware.',
+    detailed: 'Cloud computing delivers on-demand IT resources over the internet on a pay-as-you-go model.\n\nService models:\n- **IaaS** – Infrastructure as a Service (EC2, VMs)\n- **PaaS** – Platform as a Service (Heroku, App Engine)\n- **SaaS** – Software as a Service (Gmail, Office 365)\n\nDeployment models: Public, Private, Hybrid, Community.',
+    example: 'Netflix runs on AWS — it scales to millions of users worldwide without owning a single data center for streaming.',
+    keyPoints: ['On-demand resources over the internet','Pay-as-you-go pricing','IaaS, PaaS, SaaS','Public / Private / Hybrid deployments','Scalability, cost-efficiency, reliability'],
+  },
+  'neural networks': {
+    simple: 'A neural network is a computing system inspired by the brain. It learns patterns by adjusting connection weights between layers of nodes.',
+    detailed: 'A neural network consists of layers of interconnected nodes:\n- **Input layer** – receives features\n- **Hidden layers** – transform data using weights, biases, activation functions\n- **Output layer** – produces prediction\n\nTraining uses **forward propagation** to compute output, **loss function** to measure error, and **backpropagation** with gradient descent to update weights.',
+    example: 'Handwritten digit recognition: 784 input pixels → hidden layers with ReLU → 10 output neurons (0–9) with softmax.',
+    keyPoints: ['Inspired by biological neurons','Layers: input, hidden, output','Weights and biases are learned','Forward + backward propagation','Backbone of deep learning'],
+  },
+  'sql joins': {
+    simple: 'SQL JOINs combine rows from two or more tables based on a related column. The type of join decides which rows are kept.',
+    detailed: 'JOIN types in SQL:\n- **INNER JOIN** – only matching rows\n- **LEFT JOIN** – all left + matching right (NULL if no match)\n- **RIGHT JOIN** – all right + matching left\n- **FULL OUTER JOIN** – all rows from both sides\n- **CROSS JOIN** – Cartesian product',
+    example: '```sql\nSELECT c.name, o.total\nFROM customers c\nINNER JOIN orders o ON c.id = o.customer_id;\n```',
+    keyPoints: ['Combine rows from multiple tables','INNER, LEFT, RIGHT, FULL OUTER, CROSS','Use ON to specify join condition','Watch for duplicates and NULLs'],
+  },
+};
+
+function findTopic(query) {
+  const q = query.toLowerCase();
+  for (const key of Object.keys(TOPIC_KNOWLEDGE)) {
+    if (q.includes(key)) return key;
+  }
+  const map = {
+    'supervised':'supervised learning','normaliz':'normalization','polymorph':'polymorphism',
+    'cloud':'cloud computing','neural':'neural networks','join':'sql joins','recursi':'recursion',
+  };
+  for (const frag of Object.keys(map)) {
+    if (q.includes(frag)) return map[frag];
+  }
+  return null;
+}
+
+const delay = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const aiService = {
+  async askQuestion(question, mode = 'detailed') {
+    await delay(600 + Math.random() * 500);
+    const topic = findTopic(question);
+    if (topic) {
+      const k = TOPIC_KNOWLEDGE[topic];
+      if (mode === 'beginner') return `**${topic} — Simple Explanation**\n\n${k.simple}\n\n**Example**\n\n${k.example}`;
+      if (mode === 'exam') return `**${topic} — Exam Answer**\n\n**Definition:** ${k.simple}\n\n**Key Points:**\n${k.keyPoints.map(p=>`- ${p}`).join('\n')}`;
+      if (mode === 'revision') return `**${topic} — Quick Revision**\n\n${k.keyPoints.map(p=>`• ${p}`).join('\n')}`;
+      return `**${topic} — Detailed Explanation**\n\n${k.detailed}\n\n**Example**\n\n${k.example}\n\n**Key Points**\n\n${k.keyPoints.map(p=>`- ${p}`).join('\n')}`;
+    }
+    if (question.toLowerCase().includes('quiz')) {
+      return `I'd be happy to quiz you! Head over to the **Quiz Generator** page and select a subject and topic.`;
+    }
+    return `Here's what I can tell you about "${question.trim()}":\n\n**Overview**\nThis is an important topic. The key is to break it into (1) the core definition, (2) how it works, (3) real-world applications, and (4) common pitfalls.\n\n**Suggestions:**\n- Try the **Summarizer** with your notes\n- Generate a **Quiz**\n- Create **Flashcards**`;
+  },
+
+  async summarizeText(text, mode = 'medium') {
+    await delay(800);
+    const trimmed = (text || '').trim();
+    if (!trimmed) {
+      return { summary:'No content provided.', concepts:[], keyPoints:[], definitions:[], examples:[] };
+    }
+    const sentences = trimmed.split(/(?<=[.!?])\s+/).filter(s => s.length > 10);
+    const summaryLen = mode === 'short' ? 2 : mode === 'medium' ? 4 : mode === 'detailed' ? 6 : 3;
+    const summary = sentences.slice(0, summaryLen).join(' ');
+    const words = trimmed.toLowerCase().replace(/[^a-z\s]/g,' ').split(/\s+/).filter(w => w.length > 4);
+    const freq = {};
+    words.forEach(w => freq[w] = (freq[w]||0)+1);
+    const concepts = Object.entries(freq).sort((a,b)=>b[1]-a[1]).slice(0,6).map(([w])=>w.charAt(0).toUpperCase()+w.slice(1));
+    const keyPoints = sentences.slice(0,5);
+    const definitions = concepts.slice(0,3).map(c => ({ term:c, definition:`Key concept in this material — appears frequently and is likely exam-relevant.` }));
+    const examples = sentences.filter(s => /for example|e\.g\.|such as/i.test(s)).slice(0,3);
+    if (examples.length === 0) examples.push('No explicit examples found in the text.');
+    return {
+      summary: `**${mode.toUpperCase()} Summary**\n\n${summary}`,
+      concepts, keyPoints, definitions, examples,
+    };
+  },
+
+  async generateQuiz({ subject, topic, difficulty, count, types }) {
+    await delay(900);
+    const pool = QUESTION_BANK.filter(q =>
+      (subject === 'Any' || q.subject === subject) &&
+      (!topic || q.topic.toLowerCase().includes(topic.toLowerCase()) || q.topic === 'General')
+    );
+    const base = pool.length > 0 ? pool : QUESTION_BANK;
+    const filtered = base.filter(q => !types || types.length === 0 || types.includes(q.type));
+    const source = filtered.length > 0 ? filtered : QUESTION_BANK;
+    const questions = [];
+    for (let i = 0; i < count; i++) {
+      const q = source[i % source.length];
+      questions.push({ ...q, id: uid('q'), difficulty, subject, topic: topic || q.topic });
+    }
+    return questions;
+  },
+
+  async generateFlashcards({ subject, topic, count }) {
+    await delay(700);
+    const pool = DEMO_FLASHCARDS.filter(c =>
+      (subject === 'Any' || c.subject === subject) &&
+      (!topic || c.topic.toLowerCase().includes(topic.toLowerCase()))
+    );
+    const source = pool.length > 0 ? pool : DEMO_FLASHCARDS;
+    const cards = [];
+    for (let i = 0; i < count; i++) {
+      const c = source[i % source.length];
+      cards.push({ ...c, id: uid('f'), status:'new' });
+    }
+    return cards;
+  },
+
+  async generateExamAnswer({ topic, marks, simple }) {
+    await delay(800);
+    const found = findTopic(topic);
+    if (found) {
+      const k = TOPIC_KNOWLEDGE[found];
+      return {
+        definition: k.simple,
+        introduction: `Understanding ${found} is essential for any student in this field. Below is a structured answer suitable for a ${marks}-mark question.`,
+        mainPoints: k.keyPoints,
+        explanation: simple ? k.simple : k.detailed,
+        examples: k.example,
+        conclusion: `In summary, ${found} is a fundamental concept. Mastering it strengthens your overall understanding and exam readiness.`,
+      };
+    }
+    return {
+      definition: `${topic} refers to a key concept in your syllabus that requires structured understanding.`,
+      introduction: `This answer addresses "${topic}" in a ${marks}-mark format with clear structure.`,
+      mainPoints: [
+        'Clear definition of the core idea',
+        'How it works step-by-step',
+        'Key characteristics and features',
+        'Real-world applications',
+        'Advantages and limitations',
+      ],
+      explanation: simple
+        ? `In simple terms, ${topic} can be understood as a way to solve specific problems by applying fundamental principles step by step.`
+        : `A detailed treatment of ${topic} includes its formal definition, underlying theory, operational mechanism, and case examples. It is often contrasted with related concepts to highlight its unique properties.`,
+      examples: `A common example of ${topic} appears in real-world systems and academic problems where structured reasoning is required.`,
+      conclusion: `Therefore, ${topic} plays a crucial role and should be studied thoroughly for both conceptual clarity and exam performance.`,
+    };
+  },
+
+  async generateStudyPlan({ subjects, examDate, hoursPerDay }) {
+    await delay(700);
+    const days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+    const tasks = [];
+    const subjectList = subjects.length > 0 ? subjects : ['General Study'];
+    let idx = 0;
+    days.forEach(day => {
+      const blocks = Math.max(1, Math.floor(hoursPerDay));
+      for (let b = 0; b < blocks; b++) {
+        const start = 18 + b * 1.25;
+        const startH = Math.floor(start);
+        const startM = Math.round((start - startH) * 60);
+        const endH = Math.floor(start + 0.9);
+        const endM = Math.round((start + 0.9 - endH) * 60);
+        tasks.push({
+          id: uid('task'),
+          day,
+          startTime: `${pad(startH)}:${pad(startM)}`,
+          endTime: `${pad(endH)}:${pad(endM)}`,
+          subject: subjectList[idx % subjectList.length],
+          topic: 'Focused Study Session',
+          priority: 'Medium',
+          completed: false,
+        });
+        idx++;
+      }
+    });
+    return tasks;
+  },
+};
+
+/* =========================== UI COMPONENTS =========================== */
+function Button({ children, variant='primary', size='md', className='', icon, iconRight, ...props }) {
+  const base = 'inline-flex items-center justify-center gap-2 font-semibold rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed';
+  const sizes = { sm:'px-3 py-1.5 text-sm', md:'px-4 py-2 text-sm', lg:'px-6 py-3 text-base' };
+  const variants = {
+    primary: 'bg-brand-600 hover:bg-brand-700 text-white shadow-sm hover:shadow-md',
+    secondary: 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 shadow-sm',
+    ghost: 'hover:bg-slate-100 text-slate-700',
+    danger: 'bg-red-500 hover:bg-red-600 text-white',
+    accent: 'bg-accent-600 hover:bg-accent-700 text-white',
+    outline: 'border border-brand-600 text-brand-700 hover:bg-brand-50',
+  };
+  return (
+    <button className={`${base} ${sizes[size]} ${variants[variant]} ${className}`} {...props}>
+      {icon && <Icon name={icon} size={size === 'sm' ? 14 : 16} />}
+      {children}
+      {iconRight && <Icon name={iconRight} size={size === 'sm' ? 14 : 16} />}
+    </button>
+  );
+}
+
+function Card({ children, className='', padding='p-5' }) {
+  return <div className={`bg-white rounded-2xl shadow-card border border-slate-100 ${padding} ${className}`}>{children}</div>;
+}
+
+function Input({ label, error, className='', ...props }) {
+  return (
+    <div className={className}>
+      {label && <label className="block text-sm font-medium text-slate-700 mb-1.5">{label}</label>}
+      <input
+        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-800 text-sm placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
+        {...props}
+      />
+      {error && <p className="text-xs text-red-500 mt-1">{error}</p>}
+    </div>
+  );
+}
+
+function Textarea({ label, className='', rows=6, ...props }) {
+  return (
+    <div className={className}>
+      {label && <label className="block text-sm font-medium text-slate-700 mb-1.5">{label}</label>}
+      <textarea
+        rows={rows}
+        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-800 text-sm placeholder:text-slate-400 focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all resize-y"
+        {...props}
+      />
+    </div>
+  );
+}
+
+function Select({ label, options, className='', ...props }) {
+  return (
+    <div className={className}>
+      {label && <label className="block text-sm font-medium text-slate-700 mb-1.5">{label}</label>}
+      <select
+        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-slate-800 text-sm focus:border-brand-500 focus:ring-2 focus:ring-brand-100 transition-all"
+        {...props}
+      >
+        {options.map(o => <option key={o.value ?? o} value={o.value ?? o}>{o.label ?? o}</option>)}
+      </select>
+    </div>
+  );
+}
+
+function Badge({ children, variant='default', className='' }) {
+  const variants = {
+    default: 'bg-slate-100 text-slate-700',
+    brand: 'bg-brand-100 text-brand-700',
+    success: 'bg-emerald-100 text-emerald-700',
+    warning: 'bg-amber-100 text-amber-700',
+    danger: 'bg-red-100 text-red-700',
+    accent: 'bg-accent-100 text-accent-700',
+  };
+  return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${variants[variant]} ${className}`}>{children}</span>;
+}
+
+function ProgressBar({ value, color='bg-brand-500', height='h-2', className='' }) {
+  return (
+    <div className={`w-full bg-slate-100 rounded-full overflow-hidden ${height} ${className}`}>
+      <div className={`${color} h-full rounded-full transition-all duration-500`} style={{ width: `${Math.min(100, Math.max(0, value))}%` }} />
+    </div>
+  );
+}
+
+function EmptyState({ icon='inbox', title, description, action }) {
+  return (
+    <div className="text-center py-12 px-6">
+      <div className="w-14 h-14 rounded-2xl bg-slate-100 flex items-center justify-center mx-auto mb-4">
+        <Icon name={icon} size={24} className="text-slate-400" />
+      </div>
+      <h3 className="font-semibold text-slate-800 mb-1">{title}</h3>
+      <p className="text-sm text-slate-500 mb-4 max-w-sm mx-auto">{description}</p>
+      {action}
+    </div>
+  );
+}
+
+function Modal({ open, onClose, title, children, footer }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm animate-fade-in" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto scrollbar-thin" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-5 border-b border-slate-100">
+          <h3 className="font-semibold text-lg">{title}</h3>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500"><Icon name="x" size={18} /></button>
+        </div>
+        <div className="p-5">{children}</div>
+        {footer && <div className="flex justify-end gap-2 p-5 border-t border-slate-100">{footer}</div>}
+      </div>
+    </div>
+  );
+}
+
+function Skeleton({ className='' }) {
+  return <div className={`bg-slate-200 animate-pulse rounded-lg ${className}`} />;
+}
+
+/* =========================== TOAST =========================== */
+const ToastContext = React.createContext({ show: () => {} });
+function ToastProvider({ children }) {
+  const [toasts, setToasts] = useState([]);
+  const show = useCallback((message, type='info') => {
+    const id = uid('toast');
+    setToasts(t => [...t, { id, message, type }]);
+    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3200);
+  }, []);
+  return (
+    <ToastContext.Provider value={{ show }}>
+      {children}
+      <div className="fixed bottom-4 right-4 z-[100] space-y-2">
+        {toasts.map(t => (
+          <div key={t.id} className={`px-4 py-3 rounded-xl shadow-lg text-sm font-medium text-white animate-fade-in flex items-center gap-2 ${
+            t.type === 'success' ? 'bg-emerald-600' : t.type === 'error' ? 'bg-red-600' : 'bg-slate-800'
+          }`}>
+            <Icon name={t.type === 'success' ? 'check-circle' : t.type === 'error' ? 'alert-circle' : 'info'} size={16} />
+            {t.message}
+          </div>
+        ))}
+      </div>
+    </ToastContext.Provider>
+  );
+}
+const useToast = () => React.useContext(ToastContext);
+
+/* =========================== MARKDOWN RENDERER =========================== */
+function Markdown({ text }) {
+  const html = useMemo(() => {
+    if (!text) return '';
+    let t = text;
+    // Code blocks
+    t = t.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => `<pre><code>${code.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</code></pre>`);
+    // Headers
+    t = t.replace(/^### (.*$)/gm, '<h3>$1</h3>');
+    t = t.replace(/^## (.*$)/gm, '<h3>$1</h3>');
+    // Bold
+    t = t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    // Inline code
+    t = t.replace(/`([^`]+)`/g, '<code>$1</code>');
+    // Lists
+    t = t.replace(/^\- (.*$)/gm, '<li>$1</li>');
+    t = t.replace(/^• (.*$)/gm, '<li>$1</li>');
+    t = t.replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>');
+    // Paragraphs
+    t = t.split('\n\n').map(p => {
+      if (p.startsWith('<') || p.trim() === '') return p;
+      return `<p>${p}</p>`;
+    }).join('');
+    return t.replace(/\n/g, '<br/>');
+  }, [text]);
+  return <div className="prose-answer text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
+/* =========================== ROUTER (Hash-based) =========================== */
+function useHashRoute() {
+  const [hash, setHash] = useState(() => window.location.hash.slice(1) || '/');
+  useEffect(() => {
+    const onHash = () => setHash(window.location.hash.slice(1) || '/');
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+  const navigate = useCallback((to) => { window.location.hash = to; window.scrollTo(0,0); }, []);
+  return [hash, navigate];
+}
+
+/* =========================== NAV ITEMS =========================== */
+const NAV = [
+  { path:'/', label:'Dashboard', icon:'layout-dashboard' },
+  { path:'/tutor', label:'AI Tutor', icon:'message-circle' },
+  { path:'/notes', label:'My Notes', icon:'notebook-pen' },
+  { path:'/analyzer', label:'Note Analyzer', icon:'scan-text' },
+  { path:'/documents', label:'Document Analyzer', icon:'file-text' },
+  { path:'/summarizer', label:'Summarizer', icon:'file-minus' },
+  { path:'/quiz', label:'Quiz Generator', icon:'help-circle' },
+  { path:'/flashcards', label:'Flashcards', icon:'layers' },
+  { path:'/planner', label:'Study Planner', icon:'calendar-days' },
+  { path:'/exams', label:'Exam Countdown', icon:'timer' },
+  { path:'/exam-answer', label:'Exam Answer AI', icon:'graduation-cap' },
+  { path:'/progress', label:'Progress', icon:'bar-chart-3' },
+  { path:'/resources', label:'Resources', icon:'library' },
+  { path:'/profile', label:'Profile', icon:'user' },
+  { path:'/settings', label:'Settings', icon:'settings' },
+];
+
+/* =========================== LOGO =========================== */
+function Logo({ size='md', showText=true }) {
+  const sizes = { sm:'w-8 h-8', md:'w-10 h-10', lg:'w-12 h-12' };
+  const textSizes = { sm:'text-base', md:'text-lg', lg:'text-xl' };
+  return (
+    <div className="flex items-center gap-2.5">
+      <div className={`${sizes[size]} rounded-xl bg-gradient-to-br from-brand-500 via-brand-600 to-accent-600 flex items-center justify-center shadow-md relative`}>
+        <Icon name="book-open" size={size==='sm'?16:size==='md'?20:24} className="text-white" strokeWidth={2.5} />
+        <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-accent-400 border-2 border-white flex items-center justify-center">
+          <Icon name="sparkles" size={7} className="text-white" strokeWidth={3} />
+        </span>
+      </div>
+      {showText && (
+        <div>
+          <div className={`font-extrabold ${textSizes[size]} text-slate-900 leading-tight`}>StudyMate <span className="text-brand-600">AI</span></div>
+          <div className="text-[10px] text-slate-500 -mt-0.5">Study Smarter. Understand Faster.</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* =========================== SIDEBAR =========================== */
+function Sidebar({ route, navigate, open, onClose }) {
+  return (
+    <>
+      {open && <div className="fixed inset-0 z-40 bg-slate-900/40 lg:hidden" onClick={onClose} />}
+      <aside className={`fixed lg:sticky top-0 left-0 z-50 h-screen w-72 bg-white border-r border-slate-100 flex flex-col transition-transform duration-300 ${open ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}`}>
+        <div className="p-5 border-b border-slate-100 flex items-center justify-between">
+          <div className="cursor-pointer" onClick={() => navigate('/')}><Logo /></div>
+          <button onClick={onClose} className="lg:hidden p-1.5 rounded-lg hover:bg-slate-100"><Icon name="x" size={18} /></button>
+        </div>
+        <nav className="flex-1 overflow-y-auto scrollbar-thin p-3 space-y-0.5">
+          {NAV.map(item => {
+            const active = route === item.path;
+            return (
+              <button
+                key={item.path}
+                onClick={() => { navigate(item.path); onClose(); }}
+                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all ${
+                  active ? 'bg-brand-50 text-brand-700' : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                }`}
+              >
+                <Icon name={item.icon} size={18} className={active ? 'text-brand-600' : 'text-slate-400'} />
+                {item.label}
+                {active && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-brand-500" />}
+              </button>
+            );
+          })}
+        </nav>
+        <div className="p-4 border-t border-slate-100">
+          <div className="rounded-xl bg-gradient-to-br from-brand-50 to-accent-50 p-4">
+            <div className="flex items-center gap-2 mb-1.5">
+              <Icon name="sparkles" size={16} className="text-accent-600" />
+              <span className="font-semibold text-sm text-slate-800">AI Study Tip</span>
+            </div>
+            <p className="text-xs text-slate-600 leading-relaxed">Review flashcards daily for 10 min — spaced repetition boosts recall by 60%.</p>
+          </div>
+        </div>
+      </aside>
+    </>
+  );
+}
+
+/* =========================== TOPBAR =========================== */
+function Topbar({ onMenu, onSearch, onNotifications, navigate, notificationsCount }) {
+  return (
+    <header className="sticky top-0 z-30 bg-white/80 backdrop-blur border-b border-slate-100">
+      <div className="flex items-center gap-3 px-4 sm:px-6 py-3">
+        <button onClick={onMenu} className="lg:hidden p-2 rounded-lg hover:bg-slate-100"><Icon name="menu" size={20} /></button>
+        <div className="lg:hidden"><Logo size="sm" showText={false} /></div>
+        <button onClick={onSearch} className="flex-1 max-w-md flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-50 border border-slate-200 text-slate-500 text-sm hover:bg-slate-100 transition">
+          <Icon name="search" size={16} />
+          <span>Search notes, topics, quizzes…</span>
+          <kbd className="ml-auto hidden sm:inline text-[10px] px-1.5 py-0.5 rounded bg-white border border-slate-200 text-slate-500">⌘K</kbd>
+        </button>
+        <div className="ml-auto flex items-center gap-1.5">
+          <button onClick={onNotifications} className="relative p-2 rounded-lg hover:bg-slate-100 text-slate-600">
+            <Icon name="bell" size={19} />
+            {notificationsCount > 0 && <span className="absolute top-1 right-1 w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">{notificationsCount}</span>}
+          </button>
+          <button onClick={() => navigate('/profile')} className="flex items-center gap-2 pl-1 pr-3 py-1 rounded-full hover:bg-slate-100 transition">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-brand-500 to-accent-600 flex items-center justify-center text-white font-semibold text-xs">AS</div>
+            <span className="hidden sm:block text-sm font-medium text-slate-700">Alex</span>
+          </button>
+        </div>
+      </div>
+    </header>
+  );
+}
+
+/* =========================== GLOBAL SEARCH =========================== */
+function GlobalSearch({ open, onClose, navigate, notes, resources }) {
+  const [q, setQ] = useState('');
+  const [recent, setRecent] = useLocalStorage(STORAGE_KEYS.RECENT_SEARCHES, ['recursion','neural networks','sql joins']);
+
+  const suggestions = ['Recursion','Supervised Learning','Normalization','Neural Networks','SQL Joins','Polymorphism','Cloud Computing'];
+
+  const results = useMemo(() => {
+    if (!q.trim()) return null;
+    const query = q.toLowerCase();
+    return {
+      notes: notes.filter(n => (n.title + n.content + n.subject + n.tags.join(' ')).toLowerCase().includes(query)).slice(0,4),
+      subjects: SUBJECTS.filter(s => s.name.toLowerCase().includes(query)).slice(0,3),
+      topics: TOPICS.filter(t => t.toLowerCase().includes(query)).slice(0,4),
+      quizzes: QUESTION_BANK.filter(x => (x.question + x.topic + x.subject).toLowerCase().includes(query)).slice(0,3),
+      flashcards: DEMO_FLASHCARDS.filter(f => (f.front + f.back).toLowerCase().includes(query)).slice(0,3),
+      resources: resources.filter(r => (r.title + r.description).toLowerCase().includes(query)).slice(0,3),
+    };
+  }, [q, notes, resources]);
+
+  const onSelect = (label, path) => {
+    setRecent(prev => [q, ...prev.filter(x => x !== q)].slice(0,6));
+    onClose();
+    navigate(path);
+  };
+
+  if (!open) return null;
+
+  return (
+    <div className="fixed inset-0 z-[90] bg-slate-900/50 backdrop-blur-sm flex items-start justify-center p-4 pt-20" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[75vh] overflow-hidden flex flex-col" onClick={e=>e.stopPropagation()}>
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-100">
+          <Icon name="search" size={18} className="text-slate-400" />
+          <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Search notes, subjects, topics, quizzes, flashcards, resources…" className="flex-1 outline-none text-sm bg-transparent" />
+          <button onClick={onClose} className="p-1 rounded hover:bg-slate-100"><Icon name="x" size={16} /></button>
+        </div>
+        <div className="overflow-y-auto scrollbar-thin p-4">
+          {!results && (
+            <div className="space-y-4">
+              <div>
+                <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Recent Searches</div>
+                <div className="flex flex-wrap gap-2">
+                  {recent.map(r => <button key={r} onClick={() => setQ(r)} className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-xs text-slate-700">{r}</button>)}
+                </div>
+              </div>
+              <div>
+                <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Popular Topics</div>
+                <div className="flex flex-wrap gap-2">
+                  {suggestions.map(s => <button key={s} onClick={() => setQ(s)} className="px-2.5 py-1 rounded-lg bg-brand-50 hover:bg-brand-100 text-xs text-brand-700 font-medium">{s}</button>)}
+                </div>
+              </div>
+            </div>
+          )}
+          {results && (
+            <div className="space-y-5">
+              {results.notes.length > 0 && <SearchGroup title="Notes" items={results.notes.map(n => ({ label:n.title, sub:n.subject, onClick:() => onSelect(n.title, '/notes') }))} icon="notebook-pen" />}
+              {results.subjects.length > 0 && <SearchGroup title="Subjects" items={results.subjects.map(s => ({ label:s.name, sub:`${s.progress}% complete`, onClick:() => onSelect(s.name, '/progress') }))} icon="book" />}
+              {results.topics.length > 0 && <SearchGroup title="Topics" items={results.topics.map(t => ({ label:t, sub:'Topic', onClick:() => onSelect(t, '/tutor') }))} icon="hash" />}
+              {results.quizzes.length > 0 && <SearchGroup title="Quiz Questions" items={results.quizzes.map(x => ({ label:x.question, sub:`${x.subject} · ${x.topic}`, onClick:() => onSelect(x.question, '/quiz') }))} icon="help-circle" />}
+              {results.flashcards.length > 0 && <SearchGroup title="Flashcards" items={results.flashcards.map(f => ({ label:f.front, sub:f.subject, onClick:() => onSelect(f.front, '/flashcards') }))} icon="layers" />}
+              {results.resources.length > 0 && <SearchGroup title="Resources" items={results.resources.map(r => ({ label:r.title, sub:`${r.type} · ${r.subject}`, onClick:() => onSelect(r.title, '/resources') }))} icon="library" />}
+              {Object.values(results).every(a => a.length === 0) && <EmptyState icon="search-x" title="No results" description={`We couldn't find anything matching "${q}". Try a different keyword.`} />}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+function SearchGroup({ title, items, icon }) {
+  return (
+    <div>
+      <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2 flex items-center gap-1.5"><Icon name={icon} size={12} />{title}</div>
+      <div className="space-y-1">
+        {items.map((it, i) => (
+          <button key={i} onClick={it.onClick} className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-slate-100 flex items-center justify-center flex-shrink-0"><Icon name={icon} size={14} className="text-slate-500" /></div>
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-slate-800 truncate">{it.label}</div>
+              <div className="text-xs text-slate-500 truncate">{it.sub}</div>
+            </div>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* =========================== NOTIFICATIONS =========================== */
+function NotificationPanel({ open, onClose, notifications, setNotifications }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[80] bg-slate-900/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="absolute right-0 top-0 h-full w-full max-w-md bg-white shadow-2xl animate-slide-in flex flex-col" onClick={e=>e.stopPropagation()}>
+        <div className="flex items-center justify-between p-5 border-b border-slate-100">
+          <h3 className="font-semibold text-lg flex items-center gap-2"><Icon name="bell" size={18} /> Notifications</h3>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setNotifications([])} className="text-xs text-brand-600 font-medium hover:underline">Clear all</button>
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100"><Icon name="x" size={18} /></button>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto scrollbar-thin p-3">
+          {notifications.length === 0
+            ? <EmptyState icon="bell-off" title="All caught up" description="You have no new notifications." />
+            : notifications.map(n => (
+              <div key={n.id} className="p-3.5 rounded-xl hover:bg-slate-50 border border-transparent hover:border-slate-100 mb-1 flex gap-3">
+                <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                  n.type === 'warning' ? 'bg-amber-100 text-amber-600' :
+                  n.type === 'success' ? 'bg-emerald-100 text-emerald-600' :
+                  'bg-brand-100 text-brand-600'
+                }`}>
+                  <Icon name={n.type === 'warning' ? 'alert-triangle' : n.type === 'success' ? 'check-circle' : 'info'} size={16} />
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm text-slate-700 leading-snug">{n.message}</p>
+                  <p className="text-xs text-slate-400 mt-1">{formatDate(n.timestamp)}</p>
+                </div>
+              </div>
+            ))
+          }
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* =========================== POMODORO TIMER =========================== */
+function PomodoroTimer({ compact=false }) {
+  const [config, setConfig] = useLocalStorage(STORAGE_KEYS.POMODORO, { study:25, break:5, sessions:0, today:todayDate() });
+  const [mode, setMode] = useState('study');
+  const [secondsLeft, setSecondsLeft] = useState(config.study * 60);
+  const [running, setRunning] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draftStudy, setDraftStudy] = useState(config.study);
+  const [draftBreak, setDraftBreak] = useState(config.break);
+  const toast = useToast();
+
+  useEffect(() => {
+    if (config.today !== todayDate()) setConfig({ ...config, sessions:0, today:todayDate() });
+  }, []); // eslint-disable-line
+
+  useEffect(() => {
+    if (!running) return;
+    if (secondsLeft <= 0) {
+      setRunning(false);
+      if (mode === 'study') {
+        setConfig(c => ({ ...c, sessions: c.sessions + 1 }));
+        toast('Focus session complete! Take a break ☕', 'success');
+        setMode('break'); setSecondsLeft(config.break * 60);
+      } else {
+        toast('Break over — time to focus!', 'info');
+        setMode('study'); setSecondsLeft(config.study * 60);
+      }
+      return;
+    }
+    const t = setTimeout(() => setSecondsLeft(s => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [running, secondsLeft, mode, config]); // eslint-disable-line
+
+  const total = (mode === 'study' ? config.study : config.break) * 60;
+  const pct = ((total - secondsLeft) / total) * 100;
+  const mm = pad(Math.floor(secondsLeft / 60));
+  const ss = pad(secondsLeft % 60);
+
+  const reset = () => { setRunning(false); setSecondsLeft((mode === 'study' ? config.study : config.break) * 60); };
+  const switchMode = (m) => { setMode(m); setRunning(false); setSecondsLeft((m === 'study' ? config.study : config.break) * 60); };
+
+  const saveConfig = () => {
+    setConfig(c => ({ ...c, study:draftStudy, break:draftBreak }));
+    setSecondsLeft((mode === 'study' ? draftStudy : draftBreak) * 60);
+    setEditing(false);
+    toast('Timer settings updated', 'success');
+  };
+
+  if (compact) {
+    return (
+      <div className="flex items-center gap-3">
+        <div className={`w-9 h-9 rounded-full flex items-center justify-center ${mode === 'study' ? 'bg-brand-100 text-brand-600' : 'bg-emerald-100 text-emerald-600'}`}>
+          <Icon name={mode === 'study' ? 'brain' : 'coffee'} size={16} />
+        </div>
+        <div>
+          <div className="font-mono font-bold text-slate-800">{mm}:{ss}</div>
+          <div className="text-[10px] text-slate-500">{mode === 'study' ? 'Focus' : 'Break'} · {config.sessions} today</div>
+        </div>
+        <button onClick={() => setRunning(r => !r)} className="ml-auto p-1.5 rounded-lg hover:bg-slate-100 text-slate-600"><Icon name={running ? 'pause' : 'play'} size={16} /></button>
+      </div>
+    );
+  }
+
+  return (
+    <Card>
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="font-semibold flex items-center gap-2"><Icon name="timer" size={18} className="text-brand-600" /> Pomodoro Timer</h3>
+        <button onClick={() => setEditing(!editing)} className="text-xs text-brand-600 font-medium hover:underline">{editing ? 'Cancel' : 'Customize'}</button>
+      </div>
+
+      {editing ? (
+        <div className="space-y-3 mb-4">
+          <Input label="Study duration (min)" type="number" min="1" value={draftStudy} onChange={e => setDraftStudy(parseInt(e.target.value)||1)} />
+          <Input label="Break duration (min)" type="number" min="1" value={draftBreak} onChange={e => setDraftBreak(parseInt(e.target.value)||1)} />
+          <Button onClick={saveConfig} className="w-full" icon="check">Save Settings</Button>
+        </div>
+      ) : (
+        <>
+          <div className="flex justify-center gap-2 mb-4">
+            <button onClick={() => switchMode('study')} className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${mode==='study'?'bg-brand-600 text-white':'bg-slate-100 text-slate-600'}`}>Study</button>
+            <button onClick={() => switchMode('break')} className={`px-3 py-1.5 rounded-lg text-xs font-semibold ${mode==='break'?'bg-emerald-600 text-white':'bg-slate-100 text-slate-600'}`}>Break</button>
+          </div>
+          <div className="relative w-40 h-40 mx-auto mb-4">
+            <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
+              <circle cx="50" cy="50" r="45" fill="none" stroke="#e2e8f0" strokeWidth="6" />
+              <circle cx="50" cy="50" r="45" fill="none" stroke={mode==='study'?'#3b6dfb':'#10b981'} strokeWidth="6" strokeDasharray={`${2*Math.PI*45}`} strokeDashoffset={`${2*Math.PI*45*(1-pct/100)}`} strokeLinecap="round" className="transition-all duration-1000" />
+            </svg>
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <div className="font-mono font-extrabold text-3xl text-slate-800">{mm}:{ss}</div>
+              <div className="text-xs text-slate-500 mt-1">{mode === 'study' ? 'Focus Time' : 'Break Time'}</div>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <Button onClick={() => setRunning(r => !r)} className="flex-1" icon={running ? 'pause' : 'play'}>{running ? 'Pause' : 'Start'}</Button>
+            <Button onClick={reset} variant="secondary" icon="rotate-ccw">Reset</Button>
+          </div>
+          <div className="mt-4 text-center text-xs text-slate-500">
+            Today's Focus Sessions: <span className="font-bold text-brand-600">{config.sessions}</span>
+          </div>
+        </>
+      )}
+    </Card>
+  );
+}
+
+/* =========================== PAGES =========================== */
+
+/* -------- Landing -------- */
+function Landing({ navigate }) {
+  return (
+    <div className="min-h-screen bg-white">
+      {/* Nav */}
+      <nav className="sticky top-0 z-30 bg-white/80 backdrop-blur border-b border-slate-100">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3.5 flex items-center justify-between">
+          <Logo />
+          <div className="hidden md:flex items-center gap-7 text-sm font-medium text-slate-600">
+            <a href="#features" className="hover:text-brand-600">Features</a>
+            <a href="#tools" className="hover:text-brand-600">Tools</a>
+            <a href="#how" className="hover:text-brand-600">How It Works</a>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button variant="ghost" onClick={() => navigate('/')}>Sign In</Button>
+            <Button onClick={() => navigate('/')} iconRight="arrow-right">Start Studying</Button>
+          </div>
+        </div>
+      </nav>
+
+      {/* Hero */}
+      <section className="relative overflow-hidden">
+        <div className="absolute inset-0 bg-gradient-to-br from-brand-50 via-white to-accent-50" />
+        <div className="absolute top-20 -left-20 w-72 h-72 bg-brand-200/40 rounded-full blur-3xl" />
+        <div className="absolute bottom-0 -right-20 w-96 h-96 bg-accent-200/40 rounded-full blur-3xl" />
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 py-16 lg:py-24 grid lg:grid-cols-2 gap-12 items-center">
+          <div>
+            <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-brand-100 shadow-sm mb-6">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span className="text-xs font-semibold text-slate-700">AI-Powered Learning Platform</span>
+            </div>
+            <h1 className="text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight text-slate-900 leading-[1.1]">
+              Your Personal <span className="bg-gradient-to-r from-brand-600 to-accent-600 bg-clip-text text-transparent">AI Study Partner.</span>
+            </h1>
+            <p className="mt-5 text-lg text-slate-600 leading-relaxed max-w-xl">
+              Learn faster, understand difficult concepts, create quizzes, organize your notes and prepare smarter for exams.
+            </p>
+            <div className="mt-8 flex flex-wrap gap-3">
+              <Button size="lg" onClick={() => navigate('/')} iconRight="arrow-right">Start Studying</Button>
+              <Button size="lg" variant="secondary" onClick={() => navigate('/tutor')} icon="message-circle">Ask AI Tutor</Button>
+            </div>
+            <div className="mt-8 flex items-center gap-6 text-sm text-slate-500">
+              <div className="flex items-center gap-1.5"><Icon name="check-circle" size={16} className="text-emerald-500" /> 100% Free Demo</div>
+              <div className="flex items-center gap-1.5"><Icon name="check-circle" size={16} className="text-emerald-500" /> No Sign-up Required</div>
+            </div>
+          </div>
+
+          {/* Dashboard preview */}
+          <div className="relative">
+            <div className="rounded-3xl bg-white shadow-2xl border border-slate-100 p-5 relative z-10">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-2.5 h-2.5 rounded-full bg-red-400" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-emerald-400" />
+                </div>
+                <Badge variant="brand"><Icon name="sparkles" size={10} className="mr-1" /> AI Preview</Badge>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl bg-gradient-to-br from-brand-500 to-brand-600 p-4 text-white">
+                  <Icon name="message-circle" size={20} className="mb-2 opacity-90" />
+                  <div className="font-semibold text-sm">AI Tutor</div>
+                  <div className="text-xs opacity-80 mt-0.5">Ready to help</div>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-4 border border-slate-100">
+                  <div className="flex items-center justify-between mb-2">
+                    <Icon name="trending-up" size={18} className="text-emerald-500" />
+                    <span className="text-xs font-bold text-emerald-600">+12%</span>
+                  </div>
+                  <div className="font-semibold text-sm text-slate-800">Study Progress</div>
+                  <ProgressBar value={78} className="mt-2" color="bg-emerald-500" />
+                </div>
+                <div className="rounded-xl bg-slate-50 p-4 border border-slate-100">
+                  <Icon name="timer" size={18} className="text-amber-500 mb-2" />
+                  <div className="font-semibold text-sm text-slate-800">Upcoming Exam</div>
+                  <div className="text-xs text-slate-500 mt-0.5">Machine Learning</div>
+                  <div className="text-lg font-bold text-slate-800 mt-1">12 days</div>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-4 border border-slate-100">
+                  <Icon name="trophy" size={18} className="text-accent-500 mb-2" />
+                  <div className="font-semibold text-sm text-slate-800">Quiz Score</div>
+                  <div className="text-2xl font-extrabold text-accent-600 mt-1">84%</div>
+                </div>
+              </div>
+            </div>
+            <div className="absolute -top-6 -right-6 w-32 h-32 bg-accent-400/20 rounded-full blur-2xl" />
+            <div className="absolute -bottom-8 -left-6 w-40 h-40 bg-brand-400/20 rounded-full blur-2xl" />
+          </div>
+        </div>
+      </section>
+
+      {/* Stats bar */}
+      <section className="border-y border-slate-100 bg-slate-50/50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8 grid grid-cols-2 md:grid-cols-4 gap-6 text-center">
+          {[
+            { v:'50K+', l:'Active Students' },
+            { v:'1M+', l:'Concepts Explained' },
+            { v:'200K+', l:'Quizzes Generated' },
+            { v:'4.9★', l:'Average Rating' },
+          ].map(s => (
+            <div key={s.l}>
+              <div className="text-2xl sm:text-3xl font-extrabold bg-gradient-to-r from-brand-600 to-accent-600 bg-clip-text text-transparent">{s.v}</div>
+              <div className="text-xs sm:text-sm text-slate-500 mt-1">{s.l}</div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* Features */}
+      <section id="features" className="max-w-7xl mx-auto px-4 sm:px-6 py-16 lg:py-24">
+        <div className="text-center max-w-2xl mx-auto mb-14">
+          <Badge variant="brand" className="mb-3">AI-Powered Learning</Badge>
+          <h2 className="text-3xl sm:text-4xl font-extrabold text-slate-900">Everything you need to ace your exams</h2>
+          <p className="mt-3 text-slate-600">StudyMate AI combines intelligent tutoring, content summarization, adaptive quizzing, and analytics to help you learn faster and retain more.</p>
+        </div>
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {[
+            { icon:'message-circle', t:'AI Tutor', d:'Ask anything and get clear explanations, examples, and step-by-step breakdowns in your preferred learning mode.' },
+            { icon:'file-minus', t:'Smart Summarizer', d:'Turn long notes or documents into concise summaries, key points, definitions, and exam-ready revision notes.' },
+            { icon:'help-circle', t:'Quiz Generator', d:'Generate MCQs, true/false, and fill-in-the-blank quizzes at Easy, Medium, or Hard difficulty with instant feedback.' },
+            { icon:'layers', t:'Flashcards', d:'Spaced-repetition flashcards you can flip, mark as known or review, and organize by subject.' },
+            { icon:'calendar-days', t:'Study Planner', d:'Personalized weekly schedules with priorities, exam dates, and daily tasks you can check off.' },
+            { icon:'bar-chart-3', t:'Progress Analytics', d:'Track study time, quiz accuracy, weak topics, and get smart recommendations to improve.' },
+          ].map(f => (
+            <Card key={f.t} className="hover:shadow-lg transition-shadow group">
+              <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-brand-500 to-accent-600 flex items-center justify-center mb-4 group-hover:scale-110 transition">
+                <Icon name={f.icon} size={20} className="text-white" />
+              </div>
+              <h3 className="font-semibold text-lg mb-1.5">{f.t}</h3>
+              <p className="text-sm text-slate-600 leading-relaxed">{f.d}</p>
+            </Card>
+          ))}
+        </div>
+      </section>
+
+      {/* Tools */}
+      <section id="tools" className="bg-slate-50 border-y border-slate-100">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-16 lg:py-24">
+          <div className="text-center max-w-2xl mx-auto mb-14">
+            <Badge variant="accent" className="mb-3">Study Tools</Badge>
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-slate-900">A complete study toolkit</h2>
+            <p className="mt-3 text-slate-600">Every tool you need, beautifully integrated in one app.</p>
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {[
+              { icon:'message-circle', t:'AI Tutor', d:'Personalized explanations', c:'from-blue-500 to-cyan-500', path:'/tutor' },
+              { icon:'file-minus', t:'Summarizer', d:'Condense any material', c:'from-purple-500 to-pink-500', path:'/summarizer' },
+              { icon:'help-circle', t:'Quiz Generator', d:'Adaptive testing', c:'from-emerald-500 to-teal-500', path:'/quiz' },
+              { icon:'layers', t:'Flashcards', d:'Active recall', c:'from-orange-500 to-amber-500', path:'/flashcards' },
+              { icon:'calendar-days', t:'Study Planner', d:'Smart scheduling', c:'from-indigo-500 to-purple-500', path:'/planner' },
+              { icon:'bar-chart-3', t:'Progress Tracker', d:'Analytics & insights', c:'from-rose-500 to-pink-500', path:'/progress' },
+            ].map(t => (
+              <button key={t.t} onClick={() => navigate(t.path)} className="text-left">
+                <Card className="hover:shadow-lg transition-all hover:-translate-y-0.5 h-full">
+                  <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${t.c} flex items-center justify-center mb-4`}>
+                    <Icon name={t.icon} size={20} className="text-white" />
+                  </div>
+                  <h3 className="font-semibold text-lg mb-1">{t.t}</h3>
+                  <p className="text-sm text-slate-600">{t.d}</p>
+                  <div className="mt-3 text-sm font-medium text-brand-600 flex items-center gap-1">Open <Icon name="arrow-right" size={14} /></div>
+                </Card>
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* How it works */}
+      <section id="how" className="max-w-7xl mx-auto px-4 sm:px-6 py-16 lg:py-24">
+        <div className="text-center max-w-2xl mx-auto mb-14">
+          <Badge variant="brand" className="mb-3">How It Works</Badge>
+          <h2 className="text-3xl sm:text-4xl font-extrabold text-slate-900">Learn in 4 simple steps</h2>
+        </div>
+        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+          {[
+            { n:'01', icon:'upload', t:'Upload Study Material', d:'Paste notes, upload PDFs, or select a topic to begin.' },
+            { n:'02', icon:'brain', t:'AI Understands Content', d:'Our AI extracts topics, concepts, definitions, and key points.' },
+            { n:'03', icon:'book-open', t:'Learn, Practice & Revise', d:'Study with the AI tutor, take quizzes, and review flashcards.' },
+            { n:'04', icon:'trending-up', t:'Track Your Progress', d:'Get analytics, weak-topic alerts, and smart recommendations.' },
+          ].map((s, i) => (
+            <div key={s.n} className="relative">
+              <div className="text-5xl font-extrabold text-slate-100 mb-3">{s.n}</div>
+              <div className="w-11 h-11 rounded-xl bg-brand-50 flex items-center justify-center mb-3">
+                <Icon name={s.icon} size={20} className="text-brand-600" />
+              </div>
+              <h3 className="font-semibold text-lg mb-1.5">{s.t}</h3>
+              <p className="text-sm text-slate-600 leading-relaxed">{s.d}</p>
+              {i < 3 && <Icon name="arrow-right" size={20} className="hidden lg:block absolute top-6 -right-3 text-slate-300" />}
+            </div>
+          ))}
+        </div>
+      </section>
+
+      {/* CTA */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 pb-16 lg:pb-24">
+        <div className="rounded-3xl bg-gradient-to-br from-brand-600 via-brand-700 to-accent-700 p-8 sm:p-14 text-center relative overflow-hidden">
+          <div className="absolute inset-0 opacity-10">
+            <div className="absolute top-0 left-0 w-96 h-96 bg-white rounded-full blur-3xl" />
+            <div className="absolute bottom-0 right-0 w-96 h-96 bg-white rounded-full blur-3xl" />
+          </div>
+          <div className="relative">
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-white mb-3">Start Learning Smarter Today.</h2>
+            <p className="text-white/80 max-w-xl mx-auto mb-7">Join thousands of students using StudyMate AI to study smarter and understand faster.</p>
+            <Button size="lg" variant="secondary" onClick={() => navigate('/')} iconRight="arrow-right" className="!bg-white !text-brand-700 hover:!bg-slate-100">Open StudyMate</Button>
+          </div>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="border-t border-slate-100 bg-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-10">
+          <div className="grid md:grid-cols-4 gap-8">
+            <div className="md:col-span-2">
+              <Logo />
+              <p className="mt-4 text-sm text-slate-600 max-w-sm">Study Smarter. Understand Faster. Your personal AI study partner for learning, practice, and exam preparation.</p>
+            </div>
+            <div>
+              <h4 className="font-semibold text-sm mb-3">Product</h4>
+              <ul className="space-y-2 text-sm text-slate-600">
+                <li><a href="#features" className="hover:text-brand-600">Features</a></li>
+                <li><a href="#tools" className="hover:text-brand-600">Tools</a></li>
+                <li><a href="#how" className="hover:text-brand-600">How It Works</a></li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="font-semibold text-sm mb-3">Company</h4>
+              <ul className="space-y-2 text-sm text-slate-600">
+                <li><a href="#" className="hover:text-brand-600">About</a></li>
+                <li><a href="#" className="hover:text-brand-600">Help</a></li>
+                <li><a href="#" className="hover:text-brand-600">Contact</a></li>
+                <li><a href="#" className="hover:text-brand-600">Privacy</a></li>
+                <li><a href="#" className="hover:text-brand-600">Terms</a></li>
+              </ul>
+            </div>
+          </div>
+          <div className="mt-10 pt-6 border-t border-slate-100 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <p className="text-xs text-slate-500">© {new Date().getFullYear()} StudyMate AI. Educational demo — verify AI content for accuracy.</p>
+            <div className="flex items-center gap-3 text-slate-400">
+              <Icon name="github" size={18} />
+              <Icon name="twitter" size={18} />
+              <Icon name="linkedin" size={18} />
+            </div>
+          </div>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+/* -------- Dashboard -------- */
+function Dashboard({ navigate, notes, tasks, setTasks, exams, quizHistory, sessions }) {
+  const toast = useToast();
+  const today = new Date().toLocaleDateString('en-US', { weekday:'long' });
+  const todayTasks = tasks.filter(t => t.day === today || t.day === 'Monday').slice(0,4);
+
+  const streak = 7;
+  const totalHours = (sessions.reduce((s,x)=>s+x.minutes,0) / 60).toFixed(1);
+  const topicsCompleted = 18;
+  const avgAccuracy = quizHistory.length > 0
+    ? Math.round(quizHistory.reduce((s,q)=>s+q.accuracy,0) / quizHistory.length)
+    : 84;
+
+  const stats = [
+    { icon:'flame', label:'Study Streak', value:`${streak} Days`, color:'from-orange-500 to-red-500', badge:'+1 today' },
+    { icon:'clock', label:'Study Hours', value:`${totalHours}h`, color:'from-blue-500 to-cyan-500', badge:'This month' },
+    { icon:'check-circle', label:'Topics Completed', value:topicsCompleted, color:'from-emerald-500 to-teal-500', badge:'+3 this week' },
+    { icon:'target', label:'Quiz Accuracy', value:`${avgAccuracy}%`, color:'from-purple-500 to-pink-500', badge:'Keep it up!' },
+  ];
+
+  const toggleTask = (id) => {
+    setTasks(tasks.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900">{greeting()}! 👋</h1>
+        <p className="text-slate-600 mt-1">Ready to continue learning?</p>
+      </div>
+
+      {/* Stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {stats.map(s => (
+          <Card key={s.label} className="relative overflow-hidden">
+            <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${s.color} flex items-center justify-center mb-3`}>
+              <Icon name={s.icon} size={18} className="text-white" />
+            </div>
+            <div className="text-2xl font-extrabold text-slate-900">{s.value}</div>
+            <div className="text-xs text-slate-500 mt-0.5">{s.label}</div>
+            <Badge variant="success" className="mt-2 !text-[10px]">{s.badge}</Badge>
+          </Card>
+        ))}
+      </div>
+
+      <div className="grid lg:grid-cols-3 gap-6">
+        {/* Continue Learning */}
+        <div className="lg:col-span-2 space-y-6">
+          <Card>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-semibold text-lg flex items-center gap-2"><Icon name="book-open" size={18} className="text-brand-600" /> Continue Learning</h2>
+              <Button variant="ghost" size="sm" onClick={() => navigate('/progress')}>View All</Button>
+            </div>
+            <div className="grid sm:grid-cols-2 gap-3">
+              {SUBJECTS.slice(0,4).map(s => (
+                <div key={s.id} className="rounded-xl border border-slate-100 p-4 hover:border-brand-200 hover:shadow-sm transition-all group">
+                  <div className="flex items-start gap-3 mb-3">
+                    <div className={`w-10 h-10 rounded-lg bg-gradient-to-br ${s.color} flex items-center justify-center flex-shrink-0`}>
+                      <Icon name={s.icon} size={18} className="text-white" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-sm text-slate-800 truncate">{s.name}</div>
+                      <div className="text-xs text-slate-500">Last: {s.lastStudied}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-xs text-slate-500">Progress</span>
+                    <span className="text-xs font-bold text-slate-800">{s.progress}%</span>
+                  </div>
+                  <ProgressBar value={s.progress} color={s.color.includes('blue')?'bg-blue-500':s.color.includes('purple')?'bg-purple-500':s.color.includes('emerald')?'bg-emerald-500':'bg-brand-500'} />
+                  <Button size="sm" variant="outline" className="w-full mt-3" onClick={() => navigate('/tutor')} iconRight="arrow-right">Continue</Button>
+                </div>
+              ))}
+            </div>
+          </Card>
+
+          <Card>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-semibold text-lg flex items-center gap-2"><Icon name="calendar-check" size={18} className="text-brand-600" /> Today's Plan</h2>
+              <Button variant="ghost" size="sm" onClick={() => navigate('/planner')}>Open Planner</Button>
+            </div>
+            {todayTasks.length === 0 ? (
+              <EmptyState icon="calendar-x" title="No tasks for today" description="Add tasks in the Study Planner to get started." action={<Button onClick={() => navigate('/planner')} icon="plus">Add Task</Button>} />
+            ) : (
+              <div className="space-y-2">
+                {todayTasks.map(t => (
+                  <div key={t.id} className="flex items-center gap-3 p-3 rounded-xl border border-slate-100 hover:bg-slate-50 transition group">
+                    <button onClick={() => toggleTask(t.id)} className={`w-5 h-5 rounded-md border-2 flex items-center justify-center flex-shrink-0 transition ${t.completed?'bg-emerald-500 border-emerald-500':'border-slate-300 hover:border-brand-500'}`}>
+                      {t.completed && <Icon name="check" size={12} className="text-white" strokeWidth={3} />}
+                    </button>
+                    <div className="flex-1 min-w-0">
+                      <div className={`font-medium text-sm ${t.completed?'line-through text-slate-400':'text-slate-800'}`}>{t.subject} — {t.topic}</div>
+                      <div className="text-xs text-slate-500">{t.startTime} – {t.endTime}</div>
+                    </div>
+                    <Badge variant={t.priority==='High'?'danger':t.priority==='Medium'?'warning':'default'}>{t.priority}</Badge>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        </div>
+
+        {/* Right column */}
+        <div className="space-y-6">
+          <Card>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-semibold text-lg flex items-center gap-2"><Icon name="timer" size={18} className="text-brand-600" /> Upcoming Exams</h2>
+              <Button variant="ghost" size="sm" onClick={() => navigate('/exams')}>All</Button>
+            </div>
+            <div className="space-y-3">
+              {exams.slice(0,3).map(e => {
+                const days = daysBetween(e.date);
+                return (
+                  <div key={e.id} className="rounded-xl bg-gradient-to-br from-slate-50 to-white border border-slate-100 p-3.5">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="font-semibold text-sm text-slate-800 truncate">{e.subject}</div>
+                      <Badge variant={days <= 7 ? 'danger' : days <= 14 ? 'warning' : 'default'}>{days}d</Badge>
+                    </div>
+                    <div className="text-xs text-slate-500 mb-2">{formatDate(e.date)} · {e.preparation}% prepared</div>
+                    <ProgressBar value={e.preparation} color="bg-gradient-to-r from-brand-500 to-accent-500" />
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+
+          <PomodoroTimer />
+
+          <Card>
+            <h2 className="font-semibold text-lg flex items-center gap-2 mb-4"><Icon name="sparkles" size={18} className="text-accent-600" /> AI Recommendation</h2>
+            <div className="rounded-xl bg-gradient-to-br from-accent-50 to-brand-50 p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-semibold text-sm text-slate-800">Review Probability</span>
+                <Badge variant="accent">Priority 90</Badge>
+              </div>
+              <p className="text-xs text-slate-600 leading-relaxed mb-3">Recommended because your quiz score for this topic is low and your exam is approaching.</p>
+              <Button size="sm" className="w-full" onClick={() => navigate('/tutor')} icon="play">Start Session</Button>
+            </div>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* -------- AI Tutor -------- */
+function AITutor() {
+  const [mode, setMode] = useLocalStorage('studymate:tutor-mode', 'detailed');
+  const [messages, setMessages] = useState([
+    { id:'welcome', role:'assistant', content:"Hi! I'm your AI study partner. Ask me anything about your subjects — try **recursion**, **supervised learning**, or **normalization**.", timestamp:new Date().toISOString() },
+  ]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const scrollRef = useRef(null);
+
+  const modes = [
+    { id:'beginner', label:'Beginner Mode', icon:'smile', desc:'Simple language' },
+    { id:'exam', label:'Exam Mode', icon:'graduation-cap', desc:'Concise & structured' },
+    { id:'detailed', label:'Detailed Mode', icon:'book-open', desc:'Deep explanations' },
+    { id:'revision', label:'Quick Revision', icon:'zap', desc:'Only key points' },
+  ];
+
+  const quickPrompts = [
+    'Explain recursion simply',
+    'What is supervised learning?',
+    'Explain normalization',
+    'Give me an example of polymorphism',
+    'Explain this topic step-by-step',
+    'Give me a real-world example',
+    'Quiz me on this topic',
+  ];
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior:'smooth' });
+  }, [messages]);
+
+  const send = async (text) => {
+    const q = text || input.trim();
+    if (!q || loading) return;
+    setInput('');
+    const userMsg = { id:uid('u'), role:'user', content:q, timestamp:new Date().toISOString() };
+    setMessages(m => [...m, userMsg]);
+    setLoading(true);
+    const answer = await aiService.askQuestion(q, mode);
+    setMessages(m => [...m, { id:uid('a'), role:'assistant', content:answer, timestamp:new Date().toISOString() }]);
+    setLoading(false);
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 flex items-center gap-2"><Icon name="message-circle" size={28} className="text-brand-600" /> StudyMate AI Tutor</h1>
+          <p className="text-slate-600 mt-1">Your personal AI study partner. Ask anything about your subjects.</p>
+        </div>
+      </div>
+
+      {/* Learning Modes */}
+      <Card padding="p-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          {modes.map(m => (
+            <button key={m.id} onClick={() => setMode(m.id)} className={`text-left p-3 rounded-xl border transition-all ${mode===m.id?'border-brand-500 bg-brand-50 ring-1 ring-brand-200':'border-slate-200 hover:border-brand-300 hover:bg-slate-50'}`}>
+              <Icon name={m.icon} size={18} className={mode===m.id?'text-brand-600':'text-slate-500'} />
+              <div className="font-semibold text-xs mt-2 text-slate-800">{m.label}</div>
+              <div className="text-[10px] text-slate-500">{m.desc}</div>
+            </button>
+          ))}
+        </div>
+      </Card>
+
+      <div className="grid lg:grid-cols-4 gap-5">
+        <Card className="lg:col-span-3 !p-0 overflow-hidden flex flex-col h-[65vh] min-h-[500px]">
+          <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-thin p-4 sm:p-6 space-y-4">
+            {messages.map(m => (
+              <div key={m.id} className={`flex gap-3 ${m.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${m.role === 'user' ? 'bg-gradient-to-br from-brand-500 to-accent-600 text-white' : 'bg-gradient-to-br from-accent-500 to-brand-500 text-white'}`}>
+                  <Icon name={m.role === 'user' ? 'user' : 'sparkles'} size={14} strokeWidth={2.5} />
+                </div>
+                <div className={`max-w-[85%] rounded-2xl px-4 py-3 ${m.role === 'user' ? 'bg-brand-600 text-white rounded-tr-sm' : 'bg-slate-50 text-slate-800 rounded-tl-sm border border-slate-100'}`}>
+                  {m.role === 'user'
+                    ? <p className="text-sm whitespace-pre-wrap">{m.content}</p>
+                    : <Markdown text={m.content} />}
+                </div>
+              </div>
+            ))}
+            {loading && (
+              <div className="flex gap-3">
+                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-accent-500 to-brand-500 flex items-center justify-center flex-shrink-0">
+                  <Icon name="sparkles" size={14} className="text-white" strokeWidth={2.5} />
+                </div>
+                <div className="bg-slate-50 border border-slate-100 rounded-2xl rounded-tl-sm px-4 py-3">
+                  <div className="flex gap-1">
+                    <div className="w-2 h-2 rounded-full bg-slate-300 animate-bounce" style={{animationDelay:'0ms'}} />
+                    <div className="w-2 h-2 rounded-full bg-slate-300 animate-bounce" style={{animationDelay:'150ms'}} />
+                    <div className="w-2 h-2 rounded-full bg-slate-300 animate-bounce" style={{animationDelay:'300ms'}} />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Quick actions */}
+          <div className="border-t border-slate-100 px-3 pt-3">
+            <div className="flex gap-2 overflow-x-auto scrollbar-thin pb-2">
+              {quickPrompts.map(p => (
+                <button key={p} onClick={() => send(p)} className="flex-shrink-0 px-3 py-1.5 rounded-full bg-slate-100 hover:bg-brand-50 hover:text-brand-700 text-xs font-medium text-slate-600 transition">{p}</button>
+              ))}
+            </div>
+          </div>
+
+          <div className="p-3 border-t border-slate-100 bg-white">
+            <div className="flex items-end gap-2">
+              <textarea
+                value={input}
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+                placeholder={`Ask in ${mode} mode…`}
+                rows={1}
+                className="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-brand-500 focus:ring-2 focus:ring-brand-100 outline-none text-sm resize-none max-h-32"
+              />
+              <Button onClick={() => send()} disabled={!input.trim() || loading} icon="send">Send</Button>
+            </div>
+          </div>
+        </Card>
+
+        <div className="space-y-4">
+          <Card>
+            <h3 className="font-semibold text-sm mb-3 flex items-center gap-2"><Icon name="zap" size={16} className="text-brand-600" /> Quick Actions</h3>
+            <div className="space-y-1.5">
+              {[
+                { l:'Explain Simply', icon:'smile', q:'Explain recursion simply' },
+                { l:'Give Example', icon:'lightbulb', q:'Give me an example of polymorphism' },
+                { l:'Summarize', icon:'file-minus', q:'Explain normalization' },
+                { l:'Quiz Me', icon:'help-circle', q:'Quiz me on this topic' },
+                { l:'Flashcards', icon:'layers', q:'Explain neural networks' },
+              ].map(a => (
+                <button key={a.l} onClick={() => send(a.q)} className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg hover:bg-slate-50 text-sm text-slate-700 transition">
+                  <Icon name={a.icon} size={15} className="text-slate-500" /> {a.l}
+                </button>
+              ))}
+            </div>
+          </Card>
+          <Card className="!bg-amber-50 !border-amber-100">
+            <div className="flex gap-2">
+              <Icon name="alert-triangle" size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-amber-800 leading-relaxed">AI-generated content should be verified for accuracy. Always cross-check with your textbooks.</p>
+            </div>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* -------- Notes -------- */
+function Notes({ notes, setNotes, navigate }) {
+  const toast = useToast();
+  const [search, setSearch] = useState('');
+  const [subjectFilter, setSubjectFilter] = useState('All');
+  const [favOnly, setFavOnly] = useState(false);
+  const [modal, setModal] = useState(null); // null | 'create' | note object
+  const [form, setForm] = useState({ title:'', subject:'Python', content:'', tags:'' });
+
+  const subjects = ['All', ...new Set(notes.map(n => n.subject))];
+
+  const filtered = useMemo(() => notes.filter(n => {
+    if (subjectFilter !== 'All' && n.subject !== subjectFilter) return false;
+    if (favOnly && !n.favorite) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      return (n.title + n.content + n.subject + n.tags.join(' ')).toLowerCase().includes(q);
+    }
+    return true;
+  }), [notes, search, subjectFilter, favOnly]);
+
+  const openCreate = () => { setForm({ title:'', subject:'Python', content:'', tags:'' }); setModal('create'); };
+  const openEdit = (note) => { setForm({ ...note, tags: note.tags.join(', ') }); setModal(note); };
+
+  const save = () => {
+    if (!form.title.trim() || !form.content.trim()) { toast('Please fill title and content', 'error'); return; }
+    const tags = form.tags.split(',').map(t => t.trim()).filter(Boolean);
+    if (modal === 'create') {
+      const newNote = {
+        id: uid('n'), title: form.title, subject: form.subject, content: form.content,
+        tags, favorite:false, createdAt:new Date().toISOString(), updatedAt:new Date().toISOString(),
+      };
+      setNotes([newNote, ...notes]);
+      toast('Note created', 'success');
+    } else {
+      setNotes(notes.map(n => n.id === modal.id ? { ...n, ...form, tags, updatedAt:new Date().toISOString() } : n));
+      toast('Note updated', 'success');
+    }
+    setModal(null);
+  };
+
+  const del = (id) => {
+    if (confirm('Delete this note?')) { setNotes(notes.filter(n => n.id !== id)); toast('Note deleted', 'success'); }
+  };
+
+  const toggleFav = (id) => setNotes(notes.map(n => n.id === id ? { ...n, favorite: !n.favorite } : n));
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 flex items-center gap-2"><Icon name="notebook-pen" size={26} className="text-brand-600" /> My Notes</h1>
+          <p className="text-slate-600 mt-1">{notes.length} notes · {notes.filter(n=>n.favorite).length} favorites</p>
+        </div>
+        <Button icon="plus" onClick={openCreate}>Create New Note</Button>
+      </div>
+
+      <Card padding="p-4">
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex-1 relative">
+            <Icon name="search" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search notes…" className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-brand-500 outline-none text-sm" />
+          </div>
+          <select value={subjectFilter} onChange={e => setSubjectFilter(e.target.value)} className="px-3 py-2.5 rounded-xl border border-slate-200 bg-white text-sm">
+            {subjects.map(s => <option key={s}>{s}</option>)}
+          </select>
+          <button onClick={() => setFavOnly(!favOnly)} className={`px-3.5 py-2.5 rounded-xl border text-sm font-medium flex items-center gap-2 ${favOnly?'bg-amber-50 border-amber-200 text-amber-700':'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+            <Icon name="star" size={14} className={favOnly?'fill-amber-400 text-amber-400':''} /> Favorites
+          </button>
+        </div>
+      </Card>
+
+      {filtered.length === 0 ? (
+        <Card><EmptyState icon="notebook" title="No notes found" description={search || subjectFilter !== 'All' || favOnly ? 'Try adjusting your filters.' : 'Create your first note to get started.'} action={<Button icon="plus" onClick={openCreate}>Create Note</Button>} /></Card>
+      ) : (
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filtered.map(n => (
+            <Card key={n.id} className="flex flex-col hover:shadow-lg transition-shadow">
+              <div className="flex items-start justify-between gap-2 mb-2">
+                <Badge variant="brand">{n.subject}</Badge>
+                <button onClick={() => toggleFav(n.id)} className="p-1 rounded hover:bg-slate-100">
+                  <Icon name="star" size={15} className={n.favorite ? 'fill-amber-400 text-amber-400' : 'text-slate-400'} />
+                </button>
+              </div>
+              <h3 className="font-semibold text-slate-900 mb-1.5 line-clamp-2">{n.title}</h3>
+              <p className="text-sm text-slate-600 line-clamp-3 flex-1">{n.content}</p>
+              <div className="flex flex-wrap gap-1 mt-3">
+                {n.tags.slice(0,3).map(t => <span key={t} className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">#{t}</span>)}
+              </div>
+              <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
+                <span className="text-[11px] text-slate-400">{formatDate(n.updatedAt)}</span>
+                <div className="flex gap-1">
+                  <button onClick={() => openEdit(n)} className="p-1.5 rounded hover:bg-slate-100 text-slate-500"><Icon name="pencil" size={14} /></button>
+                  <button onClick={() => del(n.id)} className="p-1.5 rounded hover:bg-red-50 text-red-500"><Icon name="trash-2" size={14} /></button>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      <Modal open={!!modal} onClose={() => setModal(null)} title={modal === 'create' ? 'Create New Note' : 'Edit Note'}
+        footer={<><Button variant="secondary" onClick={() => setModal(null)}>Cancel</Button><Button onClick={save} icon="check">Save Note</Button></>}>
+        <div className="space-y-4">
+          <Input label="Title" value={form.title} onChange={e => setForm({ ...form, title:e.target.value })} placeholder="e.g. Python List Comprehensions" />
+          <Select label="Subject" value={form.subject} onChange={e => setForm({ ...form, subject:e.target.value })} options={SUBJECTS.map(s => s.name)} />
+          <Textarea label="Content" value={form.content} onChange={e => setForm({ ...form, content:e.target.value })} placeholder="Write your note content…" rows={8} />
+          <Input label="Tags (comma separated)" value={form.tags} onChange={e => setForm({ ...form, tags:e.target.value })} placeholder="python, basics" />
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+/* -------- Note Analyzer -------- */
+function NoteAnalyzer({ navigate }) {
+  const toast = useToast();
+  const [text, setText] = useState('');
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const analyze = async () => {
+    if (!text.trim()) { toast('Paste some study material first', 'error'); return; }
+    setLoading(true);
+    const res = await aiService.summarizeText(text, 'medium');
+    // Derive extra analysis
+    const sentences = text.split(/(?<=[.!?])\s+/);
+    const questions = sentences.filter(s => /what|why|how|when|where|which|explain/i.test(s)).slice(0,5);
+    setResult({
+      ...res,
+      topics: res.concepts.slice(0,4),
+      questions: questions.length > 0 ? questions : [
+        'What is the main idea of this material?',
+        'Explain the key concepts in your own words.',
+        'Give a real-world example of each concept.',
+        'How do these concepts relate to each other?',
+        'What are common misconceptions about this topic?',
+      ],
+    });
+    setLoading(false);
+    toast('Analysis complete', 'success');
+  };
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 flex items-center gap-2"><Icon name="scan-text" size={26} className="text-brand-600" /> AI Note Analyzer</h1>
+        <p className="text-slate-600 mt-1">Paste study material and let AI extract topics, concepts, definitions, and key questions.</p>
+      </div>
+
+      <Card>
+        <Textarea label="Study Material" value={text} onChange={e => setText(e.target.value)} rows={10} placeholder="Paste your notes, article, or textbook content here…" />
+        <div className="flex flex-wrap gap-2 mt-3">
+          <Button icon="sparkles" onClick={analyze} disabled={loading}>{loading ? 'Analyzing…' : 'Analyze with AI'}</Button>
+          <Button variant="secondary" icon="x" onClick={() => { setText(''); setResult(null); }}>Clear</Button>
+        </div>
+      </Card>
+
+      {loading && (
+        <Card>
+          <div className="space-y-3">
+            <Skeleton className="h-4 w-3/4" /><Skeleton className="h-4 w-full" /><Skeleton className="h-4 w-5/6" />
+            <Skeleton className="h-4 w-2/3" /><Skeleton className="h-4 w-3/4" />
+          </div>
+        </Card>
+      )}
+
+      {result && (
+        <div className="grid lg:grid-cols-3 gap-5">
+          <div className="lg:col-span-2 space-y-5">
+            <Card>
+              <h3 className="font-semibold flex items-center gap-2 mb-3"><Icon name="file-minus" size={16} className="text-brand-600" /> Summary</h3>
+              <Markdown text={result.summary} />
+            </Card>
+            <Card>
+              <h3 className="font-semibold flex items-center gap-2 mb-3"><Icon name="list-checks" size={16} className="text-brand-600" /> Key Points</h3>
+              <ul className="space-y-2">
+                {result.keyPoints.map((k,i) => (
+                  <li key={i} className="flex gap-2 text-sm text-slate-700">
+                    <Icon name="check-circle-2" size={15} className="text-emerald-500 flex-shrink-0 mt-0.5" />
+                    <span>{k}</span>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+            <Card>
+              <h3 className="font-semibold flex items-center gap-2 mb-3"><Icon name="book-open" size={16} className="text-brand-600" /> Definitions</h3>
+              <div className="space-y-3">
+                {result.definitions.map((d,i) => (
+                  <div key={i} className="p-3 rounded-lg bg-slate-50 border border-slate-100">
+                    <div className="font-semibold text-sm text-slate-800 mb-1">{d.term}</div>
+                    <div className="text-xs text-slate-600">{d.definition}</div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </div>
+          <div className="space-y-5">
+            <Card>
+              <h3 className="font-semibold flex items-center gap-2 mb-3"><Icon name="hash" size={16} className="text-brand-600" /> Main Topics</h3>
+              <div className="flex flex-wrap gap-2">
+                {result.topics.map(t => <Badge key={t} variant="brand">{t}</Badge>)}
+              </div>
+            </Card>
+            <Card>
+              <h3 className="font-semibold flex items-center gap-2 mb-3"><Icon name="help-circle" size={16} className="text-brand-600" /> Important Questions</h3>
+              <ul className="space-y-2">
+                {result.questions.map((q,i) => (
+                  <li key={i} className="text-xs text-slate-700 flex gap-2"><span className="font-bold text-brand-600">{i+1}.</span>{q}</li>
+                ))}
+              </ul>
+            </Card>
+            <Card>
+              <h3 className="font-semibold text-sm mb-3">Quick Actions</h3>
+              <div className="space-y-2">
+                <Button variant="secondary" className="w-full" icon="help-circle" onClick={() => navigate('/quiz')}>Generate Quiz</Button>
+                <Button variant="secondary" className="w-full" icon="layers" onClick={() => navigate('/flashcards')}>Generate Flashcards</Button>
+                <Button variant="secondary" className="w-full" icon="message-circle" onClick={() => navigate('/tutor')}>Ask AI</Button>
+                <Button variant="secondary" className="w-full" icon="notebook-pen" onClick={() => navigate('/notes')}>Save as Note</Button>
+              </div>
+            </Card>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* -------- Document Analyzer -------- */
+function DocumentAnalyzer({ navigate }) {
+  const toast = useToast();
+  const [doc, setDoc] = useState(null);
+  const [processing, setProcessing] = useState(false);
+  const inputRef = useRef(null);
+
+  const handleFile = async (file) => {
+    if (!file) return;
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (!['pdf','txt','docx','doc'].includes(ext)) {
+      toast('Unsupported file. Use PDF, TXT, or DOCX.', 'error');
+      return;
+    }
+    setProcessing(true);
+    await new Promise(r => setTimeout(r, 1000));
+    const fakePages = Math.max(1, Math.round(file.size / 30000));
+    const topics = ['Introduction','Core Concepts','Methodology','Applications','Conclusion'].sort(() => Math.random() - 0.5).slice(0,4);
+    setDoc({
+      name: file.name,
+      type: ext.toUpperCase(),
+      size: file.size,
+      pages: fakePages,
+      readingTime: Math.max(2, Math.round(fakePages * 2.5)),
+      topics,
+    });
+    setProcessing(false);
+    toast('Document processed successfully', 'success');
+  };
+
+  const onDrop = (e) => { e.preventDefault(); handleFile(e.dataTransfer.files[0]); };
+  const onDragOver = (e) => e.preventDefault();
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 flex items-center gap-2"><Icon name="file-text" size={26} className="text-brand-600" /> Document Analyzer</h1>
+        <p className="text-slate-600 mt-1">Upload a PDF, TXT, or DOCX file and let AI extract structure and topics. (Demo mode)</p>
+      </div>
+
+      {!doc && !processing && (
+        <Card>
+          <div onDrop={onDrop} onDragOver={onDragOver} onClick={() => inputRef.current?.click()}
+            className="border-2 border-dashed border-slate-200 rounded-2xl p-10 text-center cursor-pointer hover:border-brand-400 hover:bg-brand-50/30 transition">
+            <input ref={inputRef} type="file" accept=".pdf,.txt,.docx,.doc" className="hidden" onChange={e => handleFile(e.target.files[0])} />
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-brand-500 to-accent-600 flex items-center justify-center mx-auto mb-4">
+              <Icon name="upload-cloud" size={28} className="text-white" />
+            </div>
+            <h3 className="font-semibold text-lg text-slate-800 mb-1">Drag & drop your document</h3>
+            <p className="text-sm text-slate-500 mb-4">or click to browse — supports PDF, TXT, DOCX</p>
+            <Button icon="upload">Choose File</Button>
+          </div>
+        </Card>
+      )}
+
+      {processing && (
+        <Card>
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 rounded-xl bg-brand-100 flex items-center justify-center"><Icon name="loader" size={20} className="text-brand-600 animate-spin" /></div>
+            <div><div className="font-semibold">Processing document…</div><div className="text-xs text-slate-500">Extracting text, detecting topics</div></div>
+          </div>
+          <div className="space-y-2">
+            <Skeleton className="h-3 w-3/4" /><Skeleton className="h-3 w-full" /><Skeleton className="h-3 w-5/6" />
+          </div>
+        </Card>
+      )}
+
+      {doc && !processing && (
+        <div className="grid lg:grid-cols-3 gap-5">
+          <Card className="lg:col-span-2">
+            <div className="flex items-start gap-4 mb-5">
+              <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-red-500 to-orange-500 flex items-center justify-center flex-shrink-0">
+                <Icon name="file-text" size={24} className="text-white" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold text-slate-900 truncate">{doc.name}</div>
+                <div className="text-xs text-slate-500 mt-0.5">{doc.type} · {(doc.size/1024).toFixed(1)} KB</div>
+              </div>
+              <Button variant="ghost" size="sm" icon="x" onClick={() => setDoc(null)}>Remove</Button>
+            </div>
+            <div className="grid grid-cols-2 gap-3 mb-5">
+              <div className="rounded-xl bg-slate-50 p-3">
+                <div className="text-xs text-slate-500">Pages</div>
+                <div className="text-xl font-bold text-slate-800">{doc.pages}</div>
+              </div>
+              <div className="rounded-xl bg-slate-50 p-3">
+                <div className="text-xs text-slate-500">Reading time</div>
+                <div className="text-xl font-bold text-slate-800">{doc.readingTime} min</div>
+              </div>
+            </div>
+            <h3 className="font-semibold text-sm mb-2 flex items-center gap-2"><Icon name="hash" size={14} className="text-brand-600" /> Detected Topics</h3>
+            <div className="flex flex-wrap gap-2">
+              {doc.topics.map(t => <Badge key={t} variant="brand">{t}</Badge>)}
+            </div>
+          </Card>
+          <Card>
+            <h3 className="font-semibold text-sm mb-3">Actions</h3>
+            <div className="space-y-2">
+              <Button variant="secondary" className="w-full justify-start" icon="file-minus" onClick={() => navigate('/summarizer')}>Summarize Document</Button>
+              <Button variant="secondary" className="w-full justify-start" icon="help-circle" onClick={() => navigate('/quiz')}>Generate Quiz</Button>
+              <Button variant="secondary" className="w-full justify-start" icon="layers" onClick={() => navigate('/flashcards')}>Generate Flashcards</Button>
+              <Button variant="secondary" className="w-full justify-start" icon="message-circle" onClick={() => navigate('/tutor')}>Ask Questions</Button>
+            </div>
+            <div className="mt-4 p-3 rounded-lg bg-amber-50 border border-amber-100">
+              <p className="text-[11px] text-amber-800 leading-relaxed">Demo mode: file processing is simulated. Connect a real document parser and AI API for production.</p>
+            </div>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* -------- Summarizer -------- */
+function Summarizer({ notes, navigate }) {
+  const toast = useToast();
+  const [text, setText] = useState('');
+  const [mode, setMode] = useState('medium');
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [selectedNote, setSelectedNote] = useState('');
+
+  const run = async () => {
+    if (!text.trim()) { toast('Enter or select text to summarize', 'error'); return; }
+    setLoading(true);
+    const res = await aiService.summarizeText(text, mode);
+    setResult(res);
+    setLoading(false);
+    toast('Summary generated', 'success');
+  };
+
+  const loadNote = (id) => {
+    setSelectedNote(id);
+    const n = notes.find(x => x.id === id);
+    if (n) setText(`${n.title}\n\n${n.content}`);
+  };
+
+  const copy = () => {
+    if (!result) return;
+    navigator.clipboard.writeText(result.summary);
+    toast('Copied to clipboard', 'success');
+  };
+
+  const modes = [
+    { id:'short', label:'Short', desc:'2–3 sentences' },
+    { id:'medium', label:'Medium', desc:'Balanced summary' },
+    { id:'detailed', label:'Detailed', desc:'In-depth' },
+    { id:'exam', label:'Exam Revision', desc:'Key points only' },
+  ];
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 flex items-center gap-2"><Icon name="file-minus" size={26} className="text-brand-600" /> AI Summarizer</h1>
+        <p className="text-slate-600 mt-1">Paste text, upload, or select a note to generate a smart summary.</p>
+      </div>
+
+      <div className="grid lg:grid-cols-3 gap-5">
+        <div className="lg:col-span-2 space-y-5">
+          <Card>
+            <div className="flex flex-wrap gap-2 mb-4">
+              {modes.map(m => (
+                <button key={m.id} onClick={() => setMode(m.id)} className={`px-3 py-2 rounded-lg text-xs font-semibold border transition ${mode===m.id?'bg-brand-600 text-white border-brand-600':'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                  {m.label}
+                </button>
+              ))}
+            </div>
+            <Select label="Load from Notes (optional)" value={selectedNote} onChange={e => loadNote(e.target.value)} options={[{value:'',label:'— Select a note —'}, ...notes.map(n => ({value:n.id,label:`${n.title} (${n.subject})`}))]} />
+            <div className="mt-3">
+              <Textarea label="Text to summarize" value={text} onChange={e => setText(e.target.value)} rows={10} placeholder="Paste your study material here…" />
+            </div>
+            <div className="flex gap-2 mt-3">
+              <Button icon="sparkles" onClick={run} disabled={loading}>{loading ? 'Summarizing…' : 'Generate Summary'}</Button>
+              <Button variant="secondary" icon="x" onClick={() => { setText(''); setResult(null); setSelectedNote(''); }}>Clear</Button>
+            </div>
+          </Card>
+
+          {loading && <Card><div className="space-y-3"><Skeleton className="h-4 w-3/4" /><Skeleton className="h-4 w-full" /><Skeleton className="h-4 w-5/6" /></div></Card>}
+
+          {result && (
+            <>
+              <Card>
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="font-semibold flex items-center gap-2"><Icon name="file-minus" size={16} className="text-brand-600" /> Summary</h3>
+                  <div className="flex gap-1">
+                    <Button variant="ghost" size="sm" icon="copy" onClick={copy}>Copy</Button>
+                    <Button variant="ghost" size="sm" icon="save" onClick={() => toast('Saved to your notes', 'success')}>Save</Button>
+                  </div>
+                </div>
+                <Markdown text={result.summary} />
+              </Card>
+              <div className="grid sm:grid-cols-2 gap-5">
+                <Card>
+                  <h3 className="font-semibold text-sm mb-3 flex items-center gap-2"><Icon name="hash" size={14} className="text-brand-600" /> Important Concepts</h3>
+                  <div className="flex flex-wrap gap-2">{result.concepts.map(c => <Badge key={c} variant="brand">{c}</Badge>)}</div>
+                </Card>
+                <Card>
+                  <h3 className="font-semibold text-sm mb-3 flex items-center gap-2"><Icon name="list-checks" size={14} className="text-brand-600" /> Key Points</h3>
+                  <ul className="space-y-1.5">{result.keyPoints.map((k,i) => <li key={i} className="text-xs text-slate-700 flex gap-2"><Icon name="check-circle-2" size={13} className="text-emerald-500 flex-shrink-0 mt-0.5" />{k}</li>)}</ul>
+                </Card>
+                <Card>
+                  <h3 className="font-semibold text-sm mb-3 flex items-center gap-2"><Icon name="book-open" size={14} className="text-brand-600" /> Definitions</h3>
+                  <div className="space-y-2">{result.definitions.map((d,i) => <div key={i}><div className="font-semibold text-xs text-slate-800">{d.term}</div><div className="text-xs text-slate-600">{d.definition}</div></div>)}</div>
+                </Card>
+                <Card>
+                  <h3 className="font-semibold text-sm mb-3 flex items-center gap-2"><Icon name="lightbulb" size={14} className="text-brand-600" /> Examples</h3>
+                  <ul className="space-y-1.5">{result.examples.map((e,i) => <li key={i} className="text-xs text-slate-700">{e}</li>)}</ul>
+                </Card>
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="space-y-5">
+          <Card>
+            <h3 className="font-semibold text-sm mb-3">Quick Actions</h3>
+            <div className="space-y-2">
+              <Button variant="secondary" className="w-full" icon="help-circle" onClick={() => navigate('/quiz')}>Generate Quiz</Button>
+              <Button variant="secondary" className="w-full" icon="layers" onClick={() => navigate('/flashcards')}>Generate Flashcards</Button>
+              <Button variant="secondary" className="w-full" icon="notebook-pen" onClick={() => navigate('/notes')}>Save to Notes</Button>
+            </div>
+          </Card>
+          <Card className="!bg-brand-50 !border-brand-100">
+            <div className="flex gap-2">
+              <Icon name="info" size={16} className="text-brand-600 flex-shrink-0 mt-0.5" />
+              <p className="text-xs text-brand-900 leading-relaxed">Summaries are AI-generated. Always review key facts with your original material.</p>
+            </div>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* -------- Quiz Generator -------- */
+function QuizGenerator({ quizHistory, setQuizHistory }) {
+  const toast = useToast();
+  const [stage, setStage] = useState('setup'); // setup | quiz | result
+  const [config, setConfig] = useState({ subject:'Python', topic:'', difficulty:'Medium', count:5, types:['mcq','tf','fill'] });
+  const [questions, setQuestions] = useState([]);
+  const [current, setCurrent] = useState(0);
+  const [answers, setAnswers] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [startTime, setStartTime] = useState(0);
+  const [elapsed, setElapsed] = useState(0);
+  const [timerOn, setTimerOn] = useState(false);
+
+  useEffect(() => {
+    if (stage !== 'quiz' || !timerOn) return;
+    const t = setInterval(() => setElapsed(Math.floor((Date.now() - startTime) / 1000)), 1000);
+    return () => clearInterval(t);
+  }, [stage, timerOn, startTime]);
+
+  const start = async () => {
+    setLoading(true);
+    const qs = await aiService.generateQuiz({ ...config, count: config.count });
+    setQuestions(qs);
+    setAnswers({}); setCurrent(0); setStage('quiz'); setStartTime(Date.now()); setElapsed(0);
+    setLoading(false);
+    toast(`Quiz started — ${qs.length} questions`, 'success');
+  };
+
+  const selectAnswer = (qid, val) => setAnswers(a => ({ ...a, [qid]: val }));
+
+  const submit = () => {
+    const correct = questions.filter(q => answers[q.id] === q.correctAnswer).length;
+    const total = questions.length;
+    const accuracy = total > 0 ? Math.round((correct / total) * 100) : 0;
+    const attempt = {
+      id: uid('q'), subject: config.subject, topic: config.topic || 'Mixed',
+      difficulty: config.difficulty, totalQuestions: total, correctCount: correct,
+      accuracy, timeTakenSec: elapsed, date: new Date().toISOString(),
+      questions, userAnswers: answers,
+    };
+    setQuizHistory([attempt, ...quizHistory]);
+    setStage('result');
+    toast(`Quiz complete — ${correct}/${total}`, 'success');
+  };
+
+  const restart = () => { setStage('setup'); setQuestions([]); setAnswers({}); setCurrent(0); };
+
+  if (stage === 'setup') {
+    return (
+      <div className="space-y-5">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 flex items-center gap-2"><Icon name="help-circle" size={26} className="text-brand-600" /> Quiz Generator</h1>
+          <p className="text-slate-600 mt-1">AI generates realistic questions based on your subject and difficulty.</p>
+        </div>
+        <div className="grid lg:grid-cols-3 gap-5">
+          <Card className="lg:col-span-2">
+            <div className="grid sm:grid-cols-2 gap-4">
+              <Select label="Subject" value={config.subject} onChange={e => setConfig({ ...config, subject:e.target.value })} options={['Any', ...SUBJECTS.map(s => s.name)]} />
+              <Input label="Topic (optional)" value={config.topic} onChange={e => setConfig({ ...config, topic:e.target.value })} placeholder="e.g. Recursion" />
+              <Select label="Difficulty" value={config.difficulty} onChange={e => setConfig({ ...config, difficulty:e.target.value })} options={['Easy','Medium','Hard']} />
+              <Input label="Number of questions" type="number" min="3" max="15" value={config.count} onChange={e => setConfig({ ...config, count: Math.min(15, Math.max(3, parseInt(e.target.value)||5)) })} />
+            </div>
+            <div className="mt-4">
+              <div className="text-sm font-medium text-slate-700 mb-2">Question Types</div>
+              <div className="flex flex-wrap gap-2">
+                {[
+                  { id:'mcq', label:'Multiple Choice' },
+                  { id:'tf', label:'True / False' },
+                  { id:'fill', label:'Fill in the Blank' },
+                ].map(t => {
+                  const active = config.types.includes(t.id);
+                  return (
+                    <button key={t.id} onClick={() => setConfig(c => ({ ...c, types: active ? c.types.filter(x => x !== t.id) : [...c.types, t.id] }))}
+                      className={`px-3 py-2 rounded-lg text-xs font-semibold border transition ${active?'bg-brand-600 text-white border-brand-600':'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                      {t.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="mt-5 flex items-center gap-3">
+              <Button icon="sparkles" onClick={start} disabled={loading || config.types.length === 0}>{loading ? 'Generating…' : 'Generate Quiz'}</Button>
+              <label className="flex items-center gap-2 text-sm text-slate-600">
+                <input type="checkbox" checked={timerOn} onChange={e => setTimerOn(e.target.checked)} className="rounded" /> Enable timer
+              </label>
+            </div>
+          </Card>
+          <Card>
+            <h3 className="font-semibold text-sm mb-3 flex items-center gap-2"><Icon name="history" size={16} className="text-brand-600" /> Recent Quizzes</h3>
+            {quizHistory.length === 0
+              ? <p className="text-xs text-slate-500">No quizzes yet. Generate your first one!</p>
+              : quizHistory.slice(0,5).map(q => (
+                <div key={q.id} className="py-2 border-b border-slate-100 last:border-0">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-medium text-slate-700 truncate">{q.subject}</span>
+                    <Badge variant={q.accuracy >= 70 ? 'success' : q.accuracy >= 50 ? 'warning' : 'danger'}>{q.accuracy}%</Badge>
+                  </div>
+                  <div className="text-[11px] text-slate-500">{q.correctCount}/{q.totalQuestions} · {formatDate(q.date)}</div>
+                </div>
+              ))
+            }
+          </Card>
+        </div>
+      </div>
+    );
+  }
+
+  if (stage === 'quiz') {
+    const q = questions[current];
+    const answered = Object.keys(answers).length;
+    const progress = ((current + 1) / questions.length) * 100;
+    return (
+      <div className="space-y-5 max-w-3xl mx-auto">
+        <div className="flex items-center justify-between">
+          <div className="text-sm font-medium text-slate-600">Question {current + 1} of {questions.length}</div>
+          {timerOn && <div className="flex items-center gap-1.5 text-sm font-mono font-semibold text-slate-700"><Icon name="timer" size={14} /> {pad(Math.floor(elapsed/60))}:{pad(elapsed%60)}</div>}
+        </div>
+        <ProgressBar value={progress} />
+        <Card>
+          <div className="flex items-center gap-2 mb-3">
+            <Badge variant="brand">{q.subject}</Badge>
+            <Badge variant={q.difficulty==='Easy'?'success':q.difficulty==='Medium'?'warning':'danger'}>{q.difficulty}</Badge>
+            <Badge>{q.type === 'mcq' ? 'Multiple Choice' : q.type === 'tf' ? 'True/False' : 'Fill in the Blank'}</Badge>
+          </div>
+          <h3 className="text-lg font-semibold text-slate-900 mb-4">{q.question}</h3>
+          <div className="space-y-2">
+            {q.options.map(opt => {
+              const sel = answers[q.id] === opt;
+              return (
+                <button key={opt} onClick={() => selectAnswer(q.id, opt)}
+                  className={`w-full text-left px-4 py-3 rounded-xl border-2 transition-all text-sm font-medium ${sel?'border-brand-500 bg-brand-50 text-brand-800':'border-slate-200 hover:border-brand-300 hover:bg-slate-50 text-slate-700'}`}>
+                  <div className="flex items-center gap-3">
+                    <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${sel?'border-brand-500 bg-brand-500':'border-slate-300'}`}>
+                      {sel && <Icon name="check" size={11} className="text-white" strokeWidth={3} />}
+                    </div>
+                    {opt}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </Card>
+        <div className="flex items-center justify-between gap-3">
+          <Button variant="secondary" icon="arrow-left" disabled={current === 0} onClick={() => setCurrent(c => c - 1)}>Previous</Button>
+          <div className="text-xs text-slate-500">{answered}/{questions.length} answered</div>
+          {current < questions.length - 1
+            ? <Button iconRight="arrow-right" onClick={() => setCurrent(c => c + 1)}>Next</Button>
+            : <Button icon="check" variant="primary" onClick={submit}>Submit Quiz</Button>}
+        </div>
+      </div>
+    );
+  }
+
+  // Result
+  const correct = questions.filter(q => answers[q.id] === q.correctAnswer).length;
+  const total = questions.length;
+  const accuracy = Math.round((correct / total) * 100);
+  return (
+    <div className="space-y-5 max-w-3xl mx-auto">
+      <Card className="text-center">
+        <div className={`w-20 h-20 rounded-full mx-auto mb-4 flex items-center justify-center ${accuracy>=70?'bg-emerald-100':'bg-amber-100'}`}>
+          <Icon name={accuracy>=70?'trophy':'target'} size={36} className={accuracy>=70?'text-emerald-600':'text-amber-600'} />
+        </div>
+        <h1 className="text-3xl font-extrabold text-slate-900 mb-1">Quiz Result</h1>
+        <p className="text-slate-600 mb-6">{config.subject} · {config.topic || 'Mixed Topics'}</p>
+        <div className="grid grid-cols-3 gap-4">
+          <div className="rounded-xl bg-slate-50 p-4">
+            <div className="text-3xl font-extrabold text-slate-900">{correct}/{total}</div>
+            <div className="text-xs text-slate-500 mt-1">Score</div>
+          </div>
+          <div className="rounded-xl bg-slate-50 p-4">
+            <div className={`text-3xl font-extrabold ${accuracy>=70?'text-emerald-600':accuracy>=50?'text-amber-600':'text-red-500'}`}>{accuracy}%</div>
+            <div className="text-xs text-slate-500 mt-1">Accuracy</div>
+          </div>
+          <div className="rounded-xl bg-slate-50 p-4">
+            <div className="text-3xl font-extrabold text-slate-900">{pad(Math.floor(elapsed/60))}:{pad(elapsed%60)}</div>
+            <div className="text-xs text-slate-500 mt-1">Time</div>
+          </div>
+        </div>
+        <div className="flex flex-wrap justify-center gap-2 mt-6">
+          <Button icon="rotate-ccw" onClick={restart}>Try Again</Button>
+          <Button variant="secondary" icon="list" onClick={() => setStage('review')}>Review Answers</Button>
+          <Button variant="outline" icon="brain" onClick={restart}>Study Weak Topics</Button>
+        </div>
+      </Card>
+
+      <Card>
+        <h3 className="font-semibold text-lg mb-4">Review Answers</h3>
+        <div className="space-y-4">
+          {questions.map((q, i) => {
+            const userAns = answers[q.id];
+            const isCorrect = userAns === q.correctAnswer;
+            return (
+              <div key={q.id} className={`p-4 rounded-xl border-2 ${isCorrect?'border-emerald-200 bg-emerald-50/50':'border-red-200 bg-red-50/50'}`}>
+                <div className="flex items-start gap-3 mb-2">
+                  <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${isCorrect?'bg-emerald-500':'bg-red-500'}`}>
+                    <Icon name={isCorrect?'check':'x'} size={12} className="text-white" strokeWidth={3} />
+                  </div>
+                  <div className="flex-1">
+                    <div className="font-semibold text-sm text-slate-800">Q{i+1}. {q.question}</div>
+                  </div>
+                </div>
+                <div className="pl-9 space-y-1.5 text-sm">
+                  <div><span className="text-slate-500">Your answer:</span> <span className={isCorrect?'text-emerald-700 font-medium':'text-red-600 font-medium'}>{userAns || 'Not answered'}</span></div>
+                  {!isCorrect && <div><span className="text-slate-500">Correct:</span> <span className="text-emerald-700 font-medium">{q.correctAnswer}</span></div>}
+                  <div className="text-xs text-slate-600 bg-white rounded-lg p-2.5 mt-2 border border-slate-100"><strong>Explanation:</strong> {q.explanation}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </Card>
+    </div>
+  );
+}
+
+/* -------- Flashcards -------- */
+function Flashcards({ flashcardSets, setFlashcardSets }) {
+  const toast = useToast();
+  const [activeSet, setActiveSet] = useState(null);
+  const [current, setCurrent] = useState(0);
+  const [flipped, setFlipped] = useState(false);
+  const [modal, setModal] = useState(false);
+  const [genConfig, setGenConfig] = useState({ subject:'Machine Learning', topic:'', count:10 });
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (flashcardSets.length === 0) {
+      setFlashcardSets([{ id:'default', name:'Demo Deck', subject:'Machine Learning', cards: DEMO_FLASHCARDS, createdAt:new Date().toISOString() }]);
+    }
+  }, []); // eslint-disable-line
+
+  const generate = async () => {
+    setLoading(true);
+    const cards = await aiService.generateFlashcards(genConfig);
+    const newSet = { id: uid('set'), name: `${genConfig.subject}${genConfig.topic?` — ${genConfig.topic}`:''}`, subject: genConfig.subject, cards, createdAt:new Date().toISOString() };
+    setFlashcardSets([newSet, ...flashcardSets]);
+    setModal(false); setActiveSet(newSet); setCurrent(0); setFlipped(false);
+    setLoading(false);
+    toast(`Generated ${cards.length} flashcards`, 'success');
+  };
+
+  const mark = (status) => {
+    if (!activeSet) return;
+    const updated = { ...activeSet, cards: activeSet.cards.map((c, i) => i === current ? { ...c, status } : c) };
+    setActiveSet(updated);
+    setFlashcardSets(flashcardSets.map(s => s.id === updated.id ? updated : s));
+    if (current < activeSet.cards.length - 1) { setCurrent(current + 1); setFlipped(false); }
+    else toast('Deck complete! Great work 🎉', 'success');
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 flex items-center gap-2"><Icon name="layers" size={26} className="text-brand-600" /> Flashcards</h1>
+          <p className="text-slate-600 mt-1">Active recall with flip, mark known, or review later.</p>
+        </div>
+        <Button icon="sparkles" onClick={() => setModal(true)}>Generate Flashcards with AI</Button>
+      </div>
+
+      {!activeSet ? (
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {flashcardSets.map(s => {
+            const known = s.cards.filter(c => c.status === 'known').length;
+            return (
+              <Card key={s.id} className="hover:shadow-lg transition">
+                <div className="flex items-center justify-between mb-3">
+                  <Badge variant="brand">{s.subject}</Badge>
+                  <span className="text-xs text-slate-500">{s.cards.length} cards</span>
+                </div>
+                <h3 className="font-semibold text-slate-900 mb-1">{s.name}</h3>
+                <div className="text-xs text-slate-500 mb-3">{known} mastered · {formatDate(s.createdAt)}</div>
+                <ProgressBar value={(known/s.cards.length)*100} color="bg-emerald-500" className="mb-3" />
+                <Button size="sm" className="w-full" onClick={() => { setActiveSet(s); setCurrent(0); setFlipped(false); }} icon="play">Study Deck</Button>
+              </Card>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="max-w-2xl mx-auto space-y-4">
+          <div className="flex items-center justify-between">
+            <Button variant="ghost" icon="arrow-left" onClick={() => setActiveSet(null)}>Back to decks</Button>
+            <div className="text-sm text-slate-600">Card <span className="font-bold text-slate-800">{current+1}</span> of {activeSet.cards.length}</div>
+          </div>
+          <ProgressBar value={((current+1)/activeSet.cards.length)*100} />
+
+          <div className="relative h-72 sm:h-80 cursor-pointer" onClick={() => setFlipped(f => !f)} style={{ perspective:'1200px' }}>
+            <div className="absolute inset-0 transition-transform duration-500" style={{ transformStyle:'preserve-3d', transform: flipped ? 'rotateY(180deg)' : '' }}>
+              <div className="absolute inset-0 rounded-2xl bg-white shadow-card border border-slate-100 p-8 flex flex-col items-center justify-center text-center" style={{ backfaceVisibility:'hidden' }}>
+                <Badge variant="brand" className="mb-4">Front</Badge>
+                <h3 className="text-xl sm:text-2xl font-bold text-slate-900 leading-snug">{activeSet.cards[current].front}</h3>
+                <p className="text-xs text-slate-400 mt-6 flex items-center gap-1.5"><Icon name="mouse-pointer-click" size={12} /> Click card to flip</p>
+              </div>
+              <div className="absolute inset-0 rounded-2xl bg-gradient-to-br from-brand-600 to-accent-700 shadow-card p-8 flex flex-col items-center justify-center text-center" style={{ backfaceVisibility:'hidden', transform:'rotateY(180deg)' }}>
+                <Badge className="!bg-white/20 !text-white mb-4">Back</Badge>
+                <p className="text-base sm:text-lg text-white leading-relaxed">{activeSet.cards[current].back}</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-2">
+            <Button variant="secondary" icon="arrow-left" disabled={current === 0} onClick={() => { setCurrent(current-1); setFlipped(false); }}>Previous</Button>
+            <div className="flex gap-2">
+              <Button variant="danger" icon="rotate-ccw" onClick={() => mark('review')}>Need Review</Button>
+              <Button className="!bg-emerald-600 hover:!bg-emerald-700" icon="check" onClick={() => mark('known')}>Know</Button>
+            </div>
+            <Button variant="secondary" iconRight="arrow-right" disabled={current === activeSet.cards.length-1} onClick={() => { setCurrent(current+1); setFlipped(false); }}>Next</Button>
+          </div>
+        </div>
+      )}
+
+      <Modal open={modal} onClose={() => setModal(false)} title="Generate Flashcards with AI"
+        footer={<><Button variant="secondary" onClick={() => setModal(false)}>Cancel</Button><Button icon="sparkles" onClick={generate} disabled={loading}>{loading?'Generating…':'Generate'}</Button></>}>
+        <div className="space-y-4">
+          <Select label="Subject" value={genConfig.subject} onChange={e => setGenConfig({ ...genConfig, subject:e.target.value })} options={['Any', ...SUBJECTS.map(s => s.name)]} />
+          <Input label="Topic (optional)" value={genConfig.topic} onChange={e => setGenConfig({ ...genConfig, topic:e.target.value })} placeholder="e.g. Neural Networks" />
+          <Input label="Number of cards" type="number" min="3" max="20" value={genConfig.count} onChange={e => setGenConfig({ ...genConfig, count: Math.min(20, Math.max(3, parseInt(e.target.value)||10)) })} />
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+/* -------- Study Planner -------- */
+function StudyPlanner({ tasks, setTasks, exams }) {
+  const toast = useToast();
+  const days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+  const [modal, setModal] = useState(null);
+  const [form, setForm] = useState({ day:'Monday', startTime:'18:00', endTime:'19:00', subject:'Python', topic:'', priority:'Medium' });
+  const [genModal, setGenModal] = useState(false);
+  const [genForm, setGenForm] = useState({ subjects:['Machine Learning','SQL'], hoursPerDay:2 });
+
+  const openCreate = () => { setForm({ day:'Monday', startTime:'18:00', endTime:'19:00', subject:'Python', topic:'', priority:'Medium' }); setModal('create'); };
+  const openEdit = (t) => { setForm(t); setModal(t); };
+
+  const save = () => {
+    if (!form.topic.trim()) { toast('Enter a topic', 'error'); return; }
+    if (modal === 'create') {
+      setTasks([...tasks, { ...form, id:uid('task'), completed:false }]);
+      toast('Task added', 'success');
+    } else {
+      setTasks(tasks.map(t => t.id === modal.id ? { ...t, ...form } : t));
+      toast('Task updated', 'success');
+    }
+    setModal(null);
+  };
+
+  const del = (id) => { if (confirm('Delete task?')) { setTasks(tasks.filter(t => t.id !== id)); toast('Task deleted', 'success'); } };
+  const toggle = (id) => setTasks(tasks.map(t => t.id === id ? { ...t, completed: !t.completed } : t));
+
+  const generate = async () => {
+    const newTasks = await aiService.generateStudyPlan({ subjects: genForm.subjects, hoursPerDay: genForm.hoursPerDay });
+    setTasks([...newTasks, ...tasks]);
+    setGenModal(false);
+    toast(`Generated ${newTasks.length} study sessions`, 'success');
+  };
+
+  const priorityColor = { High:'danger', Medium:'warning', Low:'default' };
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 flex items-center gap-2"><Icon name="calendar-days" size={26} className="text-brand-600" /> Study Planner</h1>
+          <p className="text-slate-600 mt-1">{tasks.filter(t=>!t.completed).length} pending · {tasks.filter(t=>t.completed).length} completed</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="secondary" icon="sparkles" onClick={() => setGenModal(true)}>Generate Plan</Button>
+          <Button icon="plus" onClick={openCreate}>Add Task</Button>
+        </div>
+      </div>
+
+      {exams.length > 0 && (
+        <Card className="!bg-gradient-to-r !from-brand-50 !to-accent-50 !border-brand-100">
+          <div className="flex items-center gap-3">
+            <Icon name="timer" size={20} className="text-brand-600" />
+            <div className="text-sm text-slate-700">
+              Next exam: <strong>{exams[0].subject}</strong> in <strong>{daysBetween(exams[0].date)} days</strong> — {exams[0].preparation}% prepared
+            </div>
+          </div>
+        </Card>
+      )}
+
+      <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
+        {days.map(day => {
+          const dayTasks = tasks.filter(t => t.day === day);
+          return (
+            <Card key={day}>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold text-slate-800">{day}</h3>
+                <Badge>{dayTasks.length} tasks</Badge>
+              </div>
+              {dayTasks.length === 0 ? (
+                <p className="text-xs text-slate-400 py-3 text-center">No tasks scheduled</p>
+              ) : (
+                <div className="space-y-2">
+                  {dayTasks.map(t => (
+                    <div key={t.id} className={`p-2.5 rounded-lg border transition group ${t.completed?'bg-slate-50 border-slate-100 opacity-70':'bg-white border-slate-200 hover:border-brand-300'}`}>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => toggle(t.id)} className={`w-4 h-4 rounded border-2 flex items-center justify-center flex-shrink-0 ${t.completed?'bg-emerald-500 border-emerald-500':'border-slate-300'}`}>
+                          {t.completed && <Icon name="check" size={10} className="text-white" strokeWidth={3} />}
+                        </button>
+                        <div className="flex-1 min-w-0">
+                          <div className={`text-xs font-semibold truncate ${t.completed?'line-through text-slate-400':'text-slate-800'}`}>{t.subject}</div>
+                          <div className="text-[10px] text-slate-500 truncate">{t.startTime}–{t.endTime} · {t.topic}</div>
+                        </div>
+                        <Badge variant={priorityColor[t.priority]} className="!text-[9px] !px-1.5">{t.priority}</Badge>
+                      </div>
+                      <div className="flex justify-end gap-1 mt-1.5 opacity-0 group-hover:opacity-100 transition">
+                        <button onClick={() => openEdit(t)} className="p-1 rounded hover:bg-slate-100 text-slate-500"><Icon name="pencil" size={11} /></button>
+                        <button onClick={() => del(t.id)} className="p-1 rounded hover:bg-red-50 text-red-500"><Icon name="trash-2" size={11} /></button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          );
+        })}
+      </div>
+
+      <Modal open={!!modal} onClose={() => setModal(null)} title={modal === 'create' ? 'Add Study Task' : 'Edit Task'}
+        footer={<><Button variant="secondary" onClick={() => setModal(null)}>Cancel</Button><Button icon="check" onClick={save}>Save</Button></>}>
+        <div className="space-y-4">
+          <Select label="Day" value={form.day} onChange={e => setForm({ ...form, day:e.target.value })} options={days} />
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="Start" type="time" value={form.startTime} onChange={e => setForm({ ...form, startTime:e.target.value })} />
+            <Input label="End" type="time" value={form.endTime} onChange={e => setForm({ ...form, endTime:e.target.value })} />
+          </div>
+          <Select label="Subject" value={form.subject} onChange={e => setForm({ ...form, subject:e.target.value })} options={SUBJECTS.map(s => s.name)} />
+          <Input label="Topic" value={form.topic} onChange={e => setForm({ ...form, topic:e.target.value })} placeholder="e.g. Recursion Practice" />
+          <Select label="Priority" value={form.priority} onChange={e => setForm({ ...form, priority:e.target.value })} options={['High','Medium','Low']} />
+        </div>
+      </Modal>
+
+      <Modal open={genModal} onClose={() => setGenModal(false)} title="Generate Study Plan with AI"
+        footer={<><Button variant="secondary" onClick={() => setGenModal(false)}>Cancel</Button><Button icon="sparkles" onClick={generate}>Generate</Button></>}>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1.5">Subjects</label>
+            <div className="flex flex-wrap gap-2">
+              {SUBJECTS.map(s => {
+                const active = genForm.subjects.includes(s.name);
+                return (
+                  <button key={s.id} onClick={() => setGenForm(f => ({ ...f, subjects: active ? f.subjects.filter(x => x !== s.name) : [...f.subjects, s.name] }))}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition ${active?'bg-brand-600 text-white border-brand-600':'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+                    {s.name}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <Input label="Hours per day" type="number" min="1" max="8" value={genForm.hoursPerDay} onChange={e => setGenForm({ ...genForm, hoursPerDay: Math.min(8, Math.max(1, parseInt(e.target.value)||2)) })} />
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+/* -------- Exam Countdown -------- */
+function ExamCountdown({ exams, setExams }) {
+  const toast = useToast();
+  const [modal, setModal] = useState(false);
+  const [form, setForm] = useState({ name:'', subject:'Python', date:'', preparation:0, priority:'Medium' });
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    const t = setInterval(() => setTick(x => x+1), 1000);
+    return () => clearInterval(t);
+  }, []);
+
+  const save = () => {
+    if (!form.name.trim() || !form.date) { toast('Enter name and date', 'error'); return; }
+    setExams([...exams, { ...form, id: uid('e') }]);
+    setModal(false);
+    toast('Exam added', 'success');
+  };
+
+  const del = (id) => { if (confirm('Delete exam?')) { setExams(exams.filter(e => e.id !== id)); toast('Exam deleted', 'success'); } };
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 flex items-center gap-2"><Icon name="timer" size={26} className="text-brand-600" /> Exam Countdown</h1>
+          <p className="text-slate-600 mt-1">Track exam dates and preparation progress.</p>
+        </div>
+        <Button icon="plus" onClick={() => setModal(true)}>Add Exam</Button>
+      </div>
+
+      {exams.length === 0 ? (
+        <Card><EmptyState icon="calendar-plus" title="No exams added" description="Add your upcoming exams to see countdowns and preparation progress." action={<Button icon="plus" onClick={() => setModal(true)}>Add Exam</Button>} /></Card>
+      ) : (
+        <div className="grid sm:grid-cols-2 gap-5">
+          {exams.map(e => {
+            const c = examCountdown(e.date);
+            const soon = c.days <= 7;
+            return (
+              <Card key={e.id} className={`relative overflow-hidden ${soon?'!border-red-200':''}`}>
+                <div className={`absolute top-0 left-0 w-1 h-full ${soon?'bg-red-500':c.days<=14?'bg-amber-500':'bg-brand-500'}`} />
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Badge variant="brand">{e.subject}</Badge>
+                      <Badge variant={e.priority==='High'?'danger':e.priority==='Medium'?'warning':'default'}>{e.priority}</Badge>
+                    </div>
+                    <h3 className="font-semibold text-slate-900">{e.name}</h3>
+                    <div className="text-xs text-slate-500 mt-0.5">{formatDate(e.date)}</div>
+                  </div>
+                  <button onClick={() => del(e.id)} className="p-1.5 rounded hover:bg-red-50 text-red-500"><Icon name="trash-2" size={14} /></button>
+                </div>
+
+                <div className="grid grid-cols-4 gap-2 my-4">
+                  {[{v:c.days,l:'Days'},{v:c.hours,l:'Hours'},{v:c.minutes,l:'Min'},{v:c.seconds,l:'Sec'}].map(x => (
+                    <div key={x.l} className="rounded-lg bg-slate-50 py-2 text-center">
+                      <div className="font-mono font-bold text-lg text-slate-800">{pad(x.v)}</div>
+                      <div className="text-[10px] text-slate-500">{x.l}</div>
+                    </div>
+                  ))}
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-xs mb-1.5">
+                    <span className="text-slate-500">Preparation</span>
+                    <span className="font-bold text-slate-800">{e.preparation}%</span>
+                  </div>
+                  <ProgressBar value={e.preparation} color={e.preparation>=70?'bg-emerald-500':e.preparation>=40?'bg-amber-500':'bg-red-500'} />
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
+
+      <Modal open={modal} onClose={() => setModal(false)} title="Add Exam"
+        footer={<><Button variant="secondary" onClick={() => setModal(false)}>Cancel</Button><Button icon="check" onClick={save}>Add Exam</Button></>}>
+        <div className="space-y-4">
+          <Input label="Exam name" value={form.name} onChange={e => setForm({ ...form, name:e.target.value })} placeholder="e.g. Machine Learning Final" />
+          <Select label="Subject" value={form.subject} onChange={e => setForm({ ...form, subject:e.target.value })} options={SUBJECTS.map(s => s.name)} />
+          <Input label="Exam date" type="date" value={form.date} onChange={e => setForm({ ...form, date:e.target.value })} />
+          <Input label="Preparation %" type="number" min="0" max="100" value={form.preparation} onChange={e => setForm({ ...form, preparation: Math.min(100, Math.max(0, parseInt(e.target.value)||0)) })} />
+          <Select label="Priority" value={form.priority} onChange={e => setForm({ ...form, priority:e.target.value })} options={['High','Medium','Low']} />
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+/* -------- Exam Answer Generator -------- */
+function ExamAnswerGenerator() {
+  const toast = useToast();
+  const [topic, setTopic] = useState('');
+  const [marks, setMarks] = useState('5');
+  const [simple, setSimple] = useState(false);
+  const [answer, setAnswer] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const generate = async () => {
+    if (!topic.trim()) { toast('Enter a topic', 'error'); return; }
+    setLoading(true);
+    const res = await aiService.generateExamAnswer({ topic, marks, simple });
+    setAnswer(res);
+    setLoading(false);
+    toast('Answer generated', 'success');
+  };
+
+  const copy = () => {
+    if (!answer) return;
+    const full = `Definition: ${answer.definition}\n\nIntroduction:\n${answer.introduction}\n\nMain Points:\n${answer.mainPoints.map(p=>`• ${p}`).join('\n')}\n\nExplanation:\n${answer.explanation}\n\nExamples:\n${answer.examples}\n\nConclusion:\n${answer.conclusion}`;
+    navigator.clipboard.writeText(full);
+    toast('Answer copied', 'success');
+  };
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 flex items-center gap-2"><Icon name="graduation-cap" size={26} className="text-brand-600" /> Exam Answer Generator</h1>
+        <p className="text-slate-600 mt-1">Generate structured exam answers with proper mark weightage.</p>
+      </div>
+
+      <Card>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <Input label="Topic" value={topic} onChange={e => setTopic(e.target.value)} placeholder="e.g. Explain Cloud Computing" />
+          <Select label="Answer Length" value={marks} onChange={e => setMarks(e.target.value)} options={['2','5','10','12','15'].map(m => ({ value:m, label:`${m} Marks` }))} />
+        </div>
+        <label className="flex items-center gap-2 text-sm text-slate-600 mt-4">
+          <input type="checkbox" checked={simple} onChange={e => setSimple(e.target.checked)} className="rounded" /> Simple Language
+        </label>
+        <Button icon="sparkles" onClick={generate} disabled={loading} className="mt-4">{loading?'Generating…':'Generate Answer'}</Button>
+      </Card>
+
+      {loading && <Card><div className="space-y-3"><Skeleton className="h-4 w-1/3" /><Skeleton className="h-4 w-full" /><Skeleton className="h-4 w-5/6" /><Skeleton className="h-4 w-3/4" /></div></Card>}
+
+      {answer && (
+        <Card>
+          <div className="flex items-center justify-between mb-5">
+            <h3 className="font-semibold text-lg">Generated Answer</h3>
+            <div className="flex gap-1">
+              <Button variant="ghost" size="sm" icon="copy" onClick={copy}>Copy Answer</Button>
+              <Button variant="ghost" size="sm" icon="save" onClick={() => toast('Answer saved', 'success')}>Save Answer</Button>
+            </div>
+          </div>
+          <div className="space-y-5 text-sm">
+            {[
+              { h:'Definition', c:answer.definition },
+              { h:'Introduction', c:answer.introduction },
+            ].map(s => (
+              <div key={s.h}>
+                <h4 className="font-semibold text-slate-900 mb-1.5 flex items-center gap-2"><span className="w-1 h-4 bg-brand-500 rounded" /> {s.h}</h4>
+                <p className="text-slate-700 leading-relaxed pl-3">{s.c}</p>
+              </div>
+            ))}
+            <div>
+              <h4 className="font-semibold text-slate-900 mb-1.5 flex items-center gap-2"><span className="w-1 h-4 bg-brand-500 rounded" /> Main Points</h4>
+              <ul className="space-y-1.5 pl-3">
+                {answer.mainPoints.map((p,i) => (
+                  <li key={i} className="text-slate-700 flex gap-2"><Icon name="check-circle-2" size={14} className="text-emerald-500 flex-shrink-0 mt-0.5" />{p}</li>
+                ))}
+              </ul>
+            </div>
+            <div>
+              <h4 className="font-semibold text-slate-900 mb-1.5 flex items-center gap-2"><span className="w-1 h-4 bg-brand-500 rounded" /> Explanation</h4>
+              <p className="text-slate-700 leading-relaxed pl-3 whitespace-pre-wrap">{answer.explanation}</p>
+            </div>
+            <div>
+              <h4 className="font-semibold text-slate-900 mb-1.5 flex items-center gap-2"><span className="w-1 h-4 bg-brand-500 rounded" /> Examples</h4>
+              <p className="text-slate-700 leading-relaxed pl-3 whitespace-pre-wrap">{answer.examples}</p>
+            </div>
+            <div>
+              <h4 className="font-semibold text-slate-900 mb-1.5 flex items-center gap-2"><span className="w-1 h-4 bg-brand-500 rounded" /> Conclusion</h4>
+              <p className="text-slate-700 leading-relaxed pl-3">{answer.conclusion}</p>
+            </div>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+
+/* -------- Progress -------- */
+function Progress({ quizHistory, sessions }) {
+  const totalMinutes = sessions.reduce((s,x) => s+x.minutes, 0);
+  const todayMinutes = sessions.filter(s => s.date.slice(0,10) === todayDate()).reduce((a,b)=>a+b.minutes,0);
+  const weekMinutes = sessions.reduce((s,x) => s+x.minutes, 0);
+
+  const avgScore = quizHistory.length > 0 ? Math.round(quizHistory.reduce((s,q)=>s+q.accuracy,0)/quizHistory.length) : 0;
+  const highestScore = quizHistory.length > 0 ? Math.max(...quizHistory.map(q => q.accuracy)) : 0;
+  const totalQuestions = quizHistory.reduce((s,q) => s+q.totalQuestions, 0);
+
+  // Weak topics
+  const topicMap = {};
+  quizHistory.forEach(q => {
+    const k = `${q.subject}::${q.topic}`;
+    if (!topicMap[k]) topicMap[k] = { subject:q.subject, topic:q.topic, total:0, correct:0 };
+    topicMap[k].total += q.totalQuestions;
+    topicMap[k].correct += q.correctCount;
+  });
+  const weakTopics = Object.values(topicMap).map(x => ({ ...x, accuracy: Math.round(x.correct/x.total*100) })).filter(x => x.accuracy < 75).sort((a,b)=>a.accuracy-b.accuracy).slice(0,5);
+
+  // Weekly bars
+  const days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const weekBars = days.map((d, i) => ({ day:d, minutes: [45,60,30,75,50,120,90][i] }));
+  const maxMin = Math.max(...weekBars.map(b => b.minutes));
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 flex items-center gap-2"><Icon name="bar-chart-3" size={26} className="text-brand-600" /> Progress Dashboard</h1>
+        <p className="text-slate-600 mt-1">Track your study analytics and identify areas to improve.</p>
+      </div>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <Card><div className="text-xs text-slate-500 mb-1">Today</div><div className="text-2xl font-extrabold text-slate-900">{todayMinutes} <span className="text-sm font-medium text-slate-500">min</span></div><ProgressBar value={(todayMinutes/120)*100} className="mt-2" color="bg-brand-500" /></Card>
+        <Card><div className="text-xs text-slate-500 mb-1">This Week</div><div className="text-2xl font-extrabold text-slate-900">{(weekMinutes/60).toFixed(1)} <span className="text-sm font-medium text-slate-500">hrs</span></div><ProgressBar value={(weekMinutes/1200)*100} className="mt-2" color="bg-emerald-500" /></Card>
+        <Card><div className="text-xs text-slate-500 mb-1">This Month</div><div className="text-2xl font-extrabold text-slate-900">{(totalMinutes/60).toFixed(1)} <span className="text-sm font-medium text-slate-500">hrs</span></div><ProgressBar value={(totalMinutes/3000)*100} className="mt-2" color="bg-accent-500" /></Card>
+        <Card><div className="text-xs text-slate-500 mb-1">Study Streak</div><div className="text-2xl font-extrabold text-slate-900">7 <span className="text-sm font-medium text-slate-500">days</span></div><div className="text-xs text-orange-500 font-semibold mt-1 flex items-center gap-1"><Icon name="flame" size={12} /> Keep going!</div></Card>
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-5">
+        <Card>
+          <h3 className="font-semibold text-lg mb-4 flex items-center gap-2"><Icon name="bar-chart" size={18} className="text-brand-600" /> Weekly Study Time</h3>
+          <div className="flex items-end justify-between gap-2 h-40">
+            {weekBars.map(b => (
+              <div key={b.day} className="flex-1 flex flex-col items-center gap-2">
+                <div className="text-[10px] font-semibold text-slate-500">{b.minutes}m</div>
+                <div className="w-full bg-gradient-to-t from-brand-500 to-accent-500 rounded-t-lg transition-all hover:opacity-80" style={{ height:`${(b.minutes/maxMin)*100}%` }} />
+                <div className="text-[10px] text-slate-500">{b.day}</div>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        <Card>
+          <h3 className="font-semibold text-lg mb-4 flex items-center gap-2"><Icon name="target" size={18} className="text-brand-600" /> Quiz Performance</h3>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-xl bg-slate-50 p-3"><div className="text-xs text-slate-500">Average Score</div><div className="text-2xl font-extrabold text-slate-900">{avgScore}%</div></div>
+            <div className="rounded-xl bg-slate-50 p-3"><div className="text-xs text-slate-500">Highest Score</div><div className="text-2xl font-extrabold text-emerald-600">{highestScore}%</div></div>
+            <div className="rounded-xl bg-slate-50 p-3"><div className="text-xs text-slate-500">Questions Attempted</div><div className="text-2xl font-extrabold text-slate-900">{totalQuestions}</div></div>
+            <div className="rounded-xl bg-slate-50 p-3"><div className="text-xs text-slate-500">Quizzes Taken</div><div className="text-2xl font-extrabold text-slate-900">{quizHistory.length}</div></div>
+          </div>
+        </Card>
+      </div>
+
+      <Card>
+        <h3 className="font-semibold text-lg mb-4 flex items-center gap-2"><Icon name="book-open" size={18} className="text-brand-600" /> Subject Progress</h3>
+        <div className="space-y-4">
+          {SUBJECTS.map(s => (
+            <div key={s.id}>
+              <div className="flex items-center justify-between mb-1.5">
+                <div className="flex items-center gap-2">
+                  <div className={`w-7 h-7 rounded-lg bg-gradient-to-br ${s.color} flex items-center justify-center`}><Icon name={s.icon} size={14} className="text-white" /></div>
+                  <span className="text-sm font-medium text-slate-800">{s.name}</span>
+                </div>
+                <span className="text-sm font-bold text-slate-800">{s.progress}%</span>
+              </div>
+              <ProgressBar value={s.progress} />
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      <Card>
+        <h3 className="font-semibold text-lg mb-4 flex items-center gap-2"><Icon name="alert-triangle" size={18} className="text-amber-500" /> Topics to Improve</h3>
+        {weakTopics.length === 0 ? (
+          <EmptyState icon="party-popper" title="No weak topics detected" description="Take a quiz to see personalized weak-topic analysis." />
+        ) : (
+          <div className="space-y-3">
+            {weakTopics.map((w, i) => (
+              <div key={i} className="p-3 rounded-xl bg-amber-50 border border-amber-100">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-semibold text-sm text-slate-800">{w.topic}</span>
+                  <Badge variant={w.accuracy<50?'danger':'warning'}>{w.accuracy}%</Badge>
+                </div>
+                <div className="text-xs text-slate-600">{w.subject}</div>
+                <div className="text-xs text-amber-800 mt-1.5 font-medium flex items-center gap-1"><Icon name="arrow-right" size={11} /> Review {w.topic} before attempting another quiz.</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Card>
+    </div>
+  );
+}
+
+/* -------- Resources -------- */
+function Resources({ resources, setResources }) {
+  const toast = useToast();
+  const [search, setSearch] = useState('');
+  const [filter, setFilter] = useState('All');
+  const [modal, setModal] = useState(false);
+  const [form, setForm] = useState({ title:'', subject:'Python', type:'Websites', description:'', link:'' });
+
+  const types = ['All','Notes','PDFs','Videos','Websites','Books','Practice Questions'];
+
+  const filtered = resources.filter(r => {
+    if (filter !== 'All' && r.type !== filter) return false;
+    if (search) return (r.title+r.description+r.subject).toLowerCase().includes(search.toLowerCase());
+    return true;
+  });
+
+  const save = () => {
+    if (!form.title.trim()) { toast('Enter a title', 'error'); return; }
+    setResources([{ ...form, id:uid('r'), dateAdded:new Date().toISOString() }, ...resources]);
+    setModal(false);
+    setForm({ title:'', subject:'Python', type:'Websites', description:'', link:'' });
+    toast('Resource added', 'success');
+  };
+
+  const del = (id) => { if (confirm('Delete resource?')) { setResources(resources.filter(r => r.id !== id)); toast('Deleted', 'success'); } };
+
+  const typeIcon = { Notes:'notebook-pen', PDFs:'file-text', Videos:'video', Websites:'globe', Books:'book', 'Practice Questions':'help-circle' };
+
+  return (
+    <div className="space-y-5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 flex items-center gap-2"><Icon name="library" size={26} className="text-brand-600" /> Resource Library</h1>
+          <p className="text-slate-600 mt-1">{resources.length} saved resources</p>
+        </div>
+        <Button icon="plus" onClick={() => setModal(true)}>Add Resource</Button>
+      </div>
+
+      <Card padding="p-4">
+        <div className="flex flex-col gap-3">
+          <div className="relative">
+            <Icon name="search" size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search resources…" className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:border-brand-500 outline-none text-sm" />
+          </div>
+          <div className="flex gap-2 overflow-x-auto scrollbar-thin pb-1">
+            {types.map(t => (
+              <button key={t} onClick={() => setFilter(t)} className={`flex-shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border transition ${filter===t?'bg-brand-600 text-white border-brand-600':'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>{t}</button>
+            ))}
+          </div>
+        </div>
+      </Card>
+
+      {filtered.length === 0 ? (
+        <Card><EmptyState icon="library" title="No resources found" description="Add your first study resource to get started." action={<Button icon="plus" onClick={() => setModal(true)}>Add Resource</Button>} /></Card>
+      ) : (
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {filtered.map(r => (
+            <Card key={r.id} className="flex flex-col hover:shadow-lg transition">
+              <div className="flex items-start justify-between mb-2">
+                <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-brand-500 to-accent-600 flex items-center justify-center">
+                  <Icon name={typeIcon[r.type]||'file'} size={18} className="text-white" />
+                </div>
+                <Badge>{r.type}</Badge>
+              </div>
+              <h3 className="font-semibold text-slate-900 mb-1 line-clamp-2">{r.title}</h3>
+              <p className="text-xs text-slate-500 mb-2">{r.subject}</p>
+              <p className="text-sm text-slate-600 line-clamp-2 flex-1">{r.description}</p>
+              <div className="flex items-center justify-between mt-3 pt-3 border-t border-slate-100">
+                <span className="text-[11px] text-slate-400">{formatDate(r.dateAdded)}</span>
+                <div className="flex gap-1">
+                  {r.link && r.link !== '#' && <a href={r.link} target="_blank" rel="noopener noreferrer" className="p-1.5 rounded hover:bg-brand-50 text-brand-600"><Icon name="external-link" size={14} /></a>}
+                  <button onClick={() => del(r.id)} className="p-1.5 rounded hover:bg-red-50 text-red-500"><Icon name="trash-2" size={14} /></button>
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      <Modal open={modal} onClose={() => setModal(false)} title="Add Resource"
+        footer={<><Button variant="secondary" onClick={() => setModal(false)}>Cancel</Button><Button icon="check" onClick={save}>Save</Button></>}>
+        <div className="space-y-4">
+          <Input label="Title" value={form.title} onChange={e => setForm({ ...form, title:e.target.value })} />
+          <Select label="Subject" value={form.subject} onChange={e => setForm({ ...form, subject:e.target.value })} options={SUBJECTS.map(s => s.name)} />
+          <Select label="Type" value={form.type} onChange={e => setForm({ ...form, type:e.target.value })} options={types.slice(1)} />
+          <Textarea label="Description" value={form.description} onChange={e => setForm({ ...form, description:e.target.value })} rows={3} />
+          <Input label="Link (optional)" value={form.link} onChange={e => setForm({ ...form, link:e.target.value })} placeholder="https://…" />
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+/* -------- Profile -------- */
+function Profile({ quizHistory, notes, flashcardSets, tasks, exams }) {
+  const [tab, setTab] = useState('activity');
+  const tabs = [
+    { id:'activity', label:'My Activity', icon:'activity' },
+    { id:'notes', label:'Saved Notes', icon:'notebook-pen' },
+    { id:'flashcards', label:'Flashcards', icon:'layers' },
+    { id:'quizzes', label:'Quiz History', icon:'help-circle' },
+    { id:'plans', label:'Study Plans', icon:'calendar-days' },
+    { id:'settings', label:'Settings', icon:'settings' },
+  ];
+
+  const stats = [
+    { l:'Total Study Hours', v:'24.5h' },
+    { l:'Quizzes Completed', v:quizHistory.length },
+    { l:'Topics Completed', v:18 },
+    { l:'Average Score', v: quizHistory.length>0 ? `${Math.round(quizHistory.reduce((s,q)=>s+q.accuracy,0)/quizHistory.length)}%` : '84%' },
+    { l:'Study Streak', v:'7 days' },
+  ];
+
+  return (
+    <div className="space-y-5">
+      <Card>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5">
+          <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-brand-500 to-accent-600 flex items-center justify-center text-white font-extrabold text-2xl flex-shrink-0">AS</div>
+          <div className="flex-1">
+            <h1 className="text-2xl font-extrabold text-slate-900">Alex Sharma</h1>
+            <p className="text-slate-600">B.Tech Computer Science · 3rd Year</p>
+            <div className="flex flex-wrap gap-2 mt-2">
+              {SUBJECTS.slice(0,5).map(s => <Badge key={s.id} variant="brand">{s.name}</Badge>)}
+            </div>
+            <p className="text-sm text-slate-600 mt-3 flex items-center gap-2"><Icon name="target" size={14} className="text-brand-600" /> Goal: Master ML fundamentals & ace finals</p>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-6 pt-6 border-t border-slate-100">
+          {stats.map(s => (
+            <div key={s.l} className="text-center">
+              <div className="text-xl font-extrabold text-slate-900">{s.v}</div>
+              <div className="text-[10px] text-slate-500 mt-0.5">{s.l}</div>
+            </div>
+          ))}
+        </div>
+      </Card>
+
+      <div className="flex gap-2 overflow-x-auto scrollbar-thin pb-1">
+        {tabs.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)} className={`flex-shrink-0 flex items-center gap-2 px-3.5 py-2 rounded-xl text-sm font-medium transition ${tab===t.id?'bg-brand-600 text-white':'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>
+            <Icon name={t.icon} size={14} /> {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'activity' && (
+        <Card>
+          <h3 className="font-semibold mb-4">Recent Activity</h3>
+          <div className="space-y-3">
+            {[
+              { icon:'check-circle', c:'text-emerald-500', t:'Completed quiz on Python Recursion', d:'2 hours ago' },
+              { icon:'notebook-pen', c:'text-brand-500', t:'Created note "Gradient Descent Explained"', d:'Yesterday' },
+              { icon:'layers', c:'text-accent-500', t:'Reviewed 15 flashcards', d:'Yesterday' },
+              { icon:'message-circle', c:'text-purple-500', t:'Asked AI about Neural Networks', d:'2 days ago' },
+              { icon:'calendar-days', c:'text-amber-500', t:'Completed 4 study tasks', d:'3 days ago' },
+            ].map((a,i) => (
+              <div key={i} className="flex items-center gap-3 p-3 rounded-xl hover:bg-slate-50">
+                <div className={`w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center ${a.c}`}><Icon name={a.icon} size={16} /></div>
+                <div className="flex-1"><div className="text-sm text-slate-700">{a.t}</div><div className="text-xs text-slate-400">{a.d}</div></div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {tab === 'notes' && (
+        <Card>
+          <h3 className="font-semibold mb-4">Saved Notes ({notes.length})</h3>
+          <div className="grid sm:grid-cols-2 gap-3">
+            {notes.slice(0,6).map(n => (
+              <div key={n.id} className="p-3 rounded-xl border border-slate-100 hover:bg-slate-50">
+                <Badge variant="brand" className="mb-2">{n.subject}</Badge>
+                <div className="font-semibold text-sm text-slate-800 mb-1">{n.title}</div>
+                <div className="text-xs text-slate-500 line-clamp-2">{n.content}</div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {tab === 'flashcards' && (
+        <Card>
+          <h3 className="font-semibold mb-4">Flashcard Decks ({flashcardSets.length})</h3>
+          <div className="space-y-2">
+            {flashcardSets.map(s => (
+              <div key={s.id} className="flex items-center gap-3 p-3 rounded-xl border border-slate-100">
+                <div className="w-9 h-9 rounded-lg bg-accent-100 flex items-center justify-center"><Icon name="layers" size={16} className="text-accent-600" /></div>
+                <div className="flex-1"><div className="font-medium text-sm">{s.name}</div><div className="text-xs text-slate-500">{s.cards.length} cards</div></div>
+                <Badge variant="brand">{s.subject}</Badge>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {tab === 'quizzes' && (
+        <Card>
+          <h3 className="font-semibold mb-4">Quiz History ({quizHistory.length})</h3>
+          {quizHistory.length === 0 ? (
+            <p className="text-sm text-slate-500">No quizzes taken yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {quizHistory.map(q => (
+                <div key={q.id} className="flex items-center gap-3 p-3 rounded-xl border border-slate-100">
+                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${q.accuracy>=70?'bg-emerald-100 text-emerald-600':q.accuracy>=50?'bg-amber-100 text-amber-600':'bg-red-100 text-red-600'}`}>
+                    <Icon name="help-circle" size={16} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-medium text-sm truncate">{q.subject} — {q.topic}</div>
+                    <div className="text-xs text-slate-500">{q.correctCount}/{q.totalQuestions} · {formatDate(q.date)}</div>
+                  </div>
+                  <Badge variant={q.accuracy>=70?'success':q.accuracy>=50?'warning':'danger'}>{q.accuracy}%</Badge>
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      )}
+
+      {tab === 'plans' && (
+        <Card>
+          <h3 className="font-semibold mb-4">Study Plans ({tasks.length} tasks · {exams.length} exams)</h3>
+          <div className="grid sm:grid-cols-2 gap-3">
+            {exams.slice(0,4).map(e => (
+              <div key={e.id} className="p-3 rounded-xl border border-slate-100">
+                <Badge variant="brand" className="mb-2">{e.subject}</Badge>
+                <div className="font-semibold text-sm">{e.name}</div>
+                <div className="text-xs text-slate-500 mt-0.5">{daysBetween(e.date)} days remaining · {e.preparation}% prepared</div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {tab === 'settings' && <SettingsInline />}
+    </div>
+  );
+}
+
+/* -------- Settings -------- */
+function SettingsInline() {
+  const toast = useToast();
+  const [prefs, setPrefs] = useLocalStorage('studymate:prefs', { theme:'light', emailNotif:true, aiMode:'detailed' });
+  return (
+    <Card>
+      <h3 className="font-semibold mb-4">Preferences</h3>
+      <div className="space-y-4">
+        <Select label="Default AI Mode" value={prefs.aiMode} onChange={e => setPrefs({ ...prefs, aiMode:e.target.value })} options={['beginner','exam','detailed','revision']} />
+        <label className="flex items-center justify-between">
+          <span className="text-sm text-slate-700">Email notifications</span>
+          <input type="checkbox" checked={prefs.emailNotif} onChange={e => setPrefs({ ...prefs, emailNotif:e.target.checked })} className="rounded" />
+        </label>
+        <div className="flex items-center justify-between">
+          <span className="text-sm text-slate-700">Clear all local data</span>
+          <Button variant="danger" size="sm" icon="trash-2" onClick={() => { if (confirm('This will clear all saved data. Continue?')) { localStorage.clear(); toast('All data cleared. Reloading…', 'success'); setTimeout(() => window.location.reload(), 1000); } }}>Clear Data</Button>
+        </div>
+      </div>
+      <Button className="mt-4" icon="check" onClick={() => toast('Preferences saved', 'success')}>Save Preferences</Button>
+    </Card>
+  );
+}
+
+function Settings() {
+  return (
+    <div className="space-y-5">
+      <div>
+        <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 flex items-center gap-2"><Icon name="settings" size={26} className="text-brand-600" /> Settings</h1>
+        <p className="text-slate-600 mt-1">Manage your preferences and data.</p>
+      </div>
+      <SettingsInline />
+    </div>
+  );
+}
+
+/* =========================== APP =========================== */
+function App() {
+  const [route, navigate] = useHashRoute();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+
+  const [notes, setNotes] = useLocalStorage(STORAGE_KEYS.NOTES, DEMO_NOTES);
+  const [tasks, setTasks] = useLocalStorage(STORAGE_KEYS.TASKS, DEMO_TASKS);
+  const [exams, setExams] = useLocalStorage(STORAGE_KEYS.EXAMS, DEMO_EXAMS);
+  const [resources, setResources] = useLocalStorage(STORAGE_KEYS.RESOURCES, DEMO_RESOURCES);
+  const [flashcardSets, setFlashcardSets] = useLocalStorage(STORAGE_KEYS.FLASHCARDS, []);
+  const [quizHistory, setQuizHistory] = useLocalStorage(STORAGE_KEYS.QUIZZES, []);
+
+  const sessions = useMemo(() => ([
+    { id:'s1', date:new Date().toISOString(), minutes:45, subject:'Python' },
+    { id:'s2', date:new Date().toISOString(), minutes:30, subject:'SQL' },
+    { id:'s3', date:new Date().toISOString(), minutes:60, subject:'Machine Learning' },
+  ]), []);
+
+  const notifications = useMemo(() => ([
+    { id:'n1', type:'warning', message:'Your Machine Learning exam is in 12 days.', timestamp:new Date().toISOString(), read:false },
+    { id:'n2', type:'success', message:'Your study streak is now 7 days! 🔥', timestamp:new Date().toISOString(), read:false },
+    { id:'n3', type:'info', message:'You have 2 incomplete study tasks.', timestamp:new Date().toISOString(), read:false },
+    { id:'n4', type:'success', message:'Your quiz score improved by 12%.', timestamp:new Date().toISOString(), read:false },
+  ]), []);
+  const [notifs, setNotifs] = useState(notifications);
+  const unreadCount = notifs.filter(n => !n.read).length;
+
+  // Keyboard shortcut
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); setSearchOpen(true); }
+      if (e.key === 'Escape') { setSearchOpen(false); setNotifOpen(false); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const openNotifs = () => { setNotifOpen(true); setNotifs(notifs.map(n => ({ ...n, read:true }))); };
+
+  // Landing
+  if (route === '/landing' || route === '/') {
+    if (route === '/') {
+      // still show landing on '/' if user hasn't entered app; use ?app=1 or hash to distinguish
+    }
+  }
+  if (route === '/landing') {
+    return <Landing navigate={navigate} />;
+  }
+
+  // Simpler: if hash is empty, show landing; if hash begins with '#/app', show app
+  // Here we'll treat '/' as dashboard (in-app), and '/landing' as landing page.
+  // Make header of app link to /landing.
+
+  const pageMap = {
+    '/': <Dashboard navigate={navigate} notes={notes} tasks={tasks} setTasks={setTasks} exams={exams} quizHistory={quizHistory} sessions={sessions} />,
+    '/tutor': <AITutor />,
+    '/notes': <Notes notes={notes} setNotes={setNotes} navigate={navigate} />,
+    '/analyzer': <NoteAnalyzer navigate={navigate} />,
+    '/documents': <DocumentAnalyzer navigate={navigate} />,
+    '/summarizer': <Summarizer notes={notes} navigate={navigate} />,
+    '/quiz': <QuizGenerator quizHistory={quizHistory} setQuizHistory={setQuizHistory} />,
+    '/flashcards': <Flashcards flashcardSets={flashcardSets} setFlashcardSets={setFlashcardSets} />,
+    '/planner': <StudyPlanner tasks={tasks} setTasks={setTasks} exams={exams} />,
+    '/exams': <ExamCountdown exams={exams} setExams={setExams} />,
+    '/exam-answer': <ExamAnswerGenerator />,
+    '/progress': <Progress quizHistory={quizHistory} sessions={sessions} />,
+    '/resources': <Resources resources={resources} setResources={setResources} />,
+    '/profile': <Profile quizHistory={quizHistory} notes={notes} flashcardSets={flashcardSets} tasks={tasks} exams={exams} />,
+    '/settings': <Settings />,
+  };
+
+  const page = pageMap[route] || <Dashboard navigate={navigate} notes={notes} tasks={tasks} setTasks={setTasks} exams={exams} quizHistory={quizHistory} sessions={sessions} />;
+
+  return (
+    <div className="min-h-screen bg-slate-50">
+      <div className="flex">
+        <Sidebar route={route} navigate={navigate} open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+        <div className="flex-1 min-w-0 flex flex-col">
+          <Topbar
+            onMenu={() => setSidebarOpen(true)}
+            onSearch={() => setSearchOpen(true)}
+            onNotifications={openNotifs}
+            navigate={navigate}
+            notificationsCount={unreadCount}
+          />
+          <main className="flex-1 p-4 sm:p-6 max-w-7xl w-full mx-auto">
+            <div className="mb-4 flex items-center gap-2 text-xs text-slate-500">
+              <button onClick={() => navigate('/landing')} className="hover:text-brand-600 font-medium flex items-center gap-1">
+                <Icon name="home" size={12} /> Landing Page
+              </button>
+            </div>
+            {page}
+          </main>
+          <footer className="border-t border-slate-100 bg-white px-6 py-4 text-center text-xs text-slate-500">
+            StudyMate AI · Study Smarter. Understand Faster. · AI content should be verified for accuracy.
+          </footer>
+        </div>
+      </div>
+
+      <GlobalSearch open={searchOpen} onClose={() => setSearchOpen(false)} navigate={navigate} notes={notes} resources={resources} />
+      <NotificationPanel open={notifOpen} onClose={() => setNotifOpen(false)} notifications={notifs} setNotifications={setNotifs} />
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <ToastProvider>
+    <App />
+  </ToastProvider>
+);
+</script>
+</body>
+</html>
